@@ -133,12 +133,6 @@ oauth.get("/.well-known/jwks.json", async (c) => {
   return proxyToKeycloak(keycloakPath, c.req.raw);
 });
 
-// Also support the oauth2/certs path
-oauth.get("/oauth2/certs", async (c) => {
-  const keycloakPath = `/realms/${realm}/protocol/openid-connect/certs`;
-  return proxyToKeycloak(keycloakPath, c.req.raw);
-});
-
 // ============ OAuth 2.0 / OIDC Endpoints ============
 
 /**
