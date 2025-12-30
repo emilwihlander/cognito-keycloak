@@ -24,9 +24,12 @@ docker run -p 3000:3000 -p 8080:8080 cognito-keycloak
 # Install dependencies
 npm install
 
-# Start Keycloak separately (e.g., via Docker)
-docker run -p 8080:8080 -e KEYCLOAK_ADMIN=admin -e KEYCLOAK_ADMIN_PASSWORD=admin \
-  quay.io/keycloak/keycloak:26.0 start-dev
+# Start Keycloak separately with realm import
+docker run -p 8080:8080 \
+  -e KEYCLOAK_ADMIN=admin \
+  -e KEYCLOAK_ADMIN_PASSWORD=admin \
+  -v $(pwd)/keycloak:/opt/keycloak/data/import \
+  quay.io/keycloak/keycloak:26.0 start-dev --import-realm
 
 # Start the wrapper
 npm run dev
@@ -40,7 +43,7 @@ Environment variables:
 |----------|---------|-------------|
 | `PORT` | `3000` | Port for the Cognito API |
 | `KEYCLOAK_URL` | `http://localhost:8080` | Keycloak base URL |
-| `KEYCLOAK_REALM` | `master` | Keycloak realm to use |
+| `KEYCLOAK_REALM` | `cognito` | Keycloak realm to use |
 | `KEYCLOAK_ADMIN` | `admin` | Keycloak admin username |
 | `KEYCLOAK_ADMIN_PASSWORD` | `admin` | Keycloak admin password |
 | `USER_POOL_ID` | `local_pool` | Hardcoded user pool ID |

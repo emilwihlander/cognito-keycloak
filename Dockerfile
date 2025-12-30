@@ -35,13 +35,15 @@ COPY --from=builder /app/package.json ./
 
 # Copy configuration files
 COPY supervisord.conf /etc/supervisord.conf
-COPY scripts/setup-keycloak.sh /opt/scripts/setup-keycloak.sh
-RUN chmod +x /opt/scripts/setup-keycloak.sh
+
+# Copy Keycloak realm configuration for import
+COPY keycloak/realm-config.json /opt/keycloak/data/import/realm-config.json
 
 # Set environment variables
 ENV KEYCLOAK_ADMIN=admin
 ENV KEYCLOAK_ADMIN_PASSWORD=admin
 ENV KEYCLOAK_URL=http://localhost:8080
+ENV KEYCLOAK_REALM=cognito
 ENV PORT=3000
 ENV USER_POOL_ID=local_pool
 
