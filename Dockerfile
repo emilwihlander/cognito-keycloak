@@ -1,4 +1,4 @@
-# Multi-stage build: Build the TypeScript app first
+# Build the TypeScript app
 FROM node:22-alpine AS builder
 
 WORKDIR /app
@@ -14,18 +14,9 @@ RUN npm ci
 COPY src/ ./src/
 RUN npm run build
 
-# Production stage: Keycloak + Node.js + supervisord
-FROM quay.io/keycloak/keycloak:26.0 AS keycloak
+# Production image - Node.js only
+FROM node:22-alpine
 
-# Switch to root for package installation
-USER root
-
-# Install Node.js, npm, and supervisord
-RUN microdnf install -y nodejs npm python3 python3-pip && \
-    pip3 install supervisor && \
-    microdnf clean all
-
-# Create app directory
 WORKDIR /app
 
 # Copy built app from builder stage
@@ -33,29 +24,18 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./
 
-# Copy configuration files
-COPY supervisord.conf /etc/supervisord.conf
-
-# Copy Keycloak realm configuration for import
-COPY keycloak/realm-config.json /opt/keycloak/data/import/realm-config.json
-
 # Set environment variables
-ENV KEYCLOAK_ADMIN=admin
-ENV KEYCLOAK_ADMIN_PASSWORD=admin
-ENV KEYCLOAK_URL=http://localhost:8080
+ENV KEYCLOAK_URL=http://keycloak:8080
 ENV KEYCLOAK_REALM=cognito
-ENV PORT=3000
+ENV PORT=8081
 ENV USER_POOL_ID=local_pool
 
-# Expose ports
-# 3000 - Cognito API
-# 8080 - Keycloak
-EXPOSE 3000 8080
+# Expose port
+EXPOSE 8081
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-  CMD curl -f http://localhost:3000/health || exit 1
+HEALTHCHECK --interval=10s --timeout=5s --start-period=5s --retries=3 \
+  CMD wget -qO- http://localhost:8081/health || exit 1
 
-# Start supervisord
-CMD ["/usr/local/bin/supervisord", "-c", "/etc/supervisord.conf"]
-
+# Start the app
+CMD ["node", "dist/index.js"]

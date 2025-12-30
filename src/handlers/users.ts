@@ -91,19 +91,33 @@ function keycloakToCognitoAttributes(user: KeycloakUser): AttributeType[] {
 }
 
 /**
- * Convert Keycloak user to Cognito UserType
+ * Convert timestamp to epoch seconds for Cognito API
  */
-function keycloakToCognitoUser(user: KeycloakUser): UserType {
+function toEpochSeconds(timestamp?: number): Date {
+  // AWS SDK expects Date objects but serializes them as epoch seconds
+  // We need to return a Date that will serialize correctly
+  if (timestamp) {
+    return new Date(timestamp);
+  }
+  return new Date();
+}
+
+/**
+ * Convert Keycloak user to Cognito UserType
+ * Note: Cognito API returns dates as epoch seconds (numbers)
+ */
+function keycloakToCognitoUser(user: KeycloakUser): Record<string, unknown> {
   // Cognito UserStatusType: ARCHIVED | COMPROMISED | CONFIRMED | EXTERNAL_PROVIDER | FORCE_CHANGE_PASSWORD | RESET_REQUIRED | UNCONFIRMED | UNKNOWN
   const userStatus = user.enabled ? "CONFIRMED" : "ARCHIVED";
+  const now = Math.floor(Date.now() / 1000);
 
   return {
     Username: user.username,
     Attributes: keycloakToCognitoAttributes(user),
     UserCreateDate: user.createdTimestamp
-      ? new Date(user.createdTimestamp)
-      : new Date(),
-    UserLastModifiedDate: new Date(),
+      ? Math.floor(user.createdTimestamp / 1000)
+      : now,
+    UserLastModifiedDate: now,
     Enabled: user.enabled,
     UserStatus: userStatus,
   };
@@ -131,10 +145,11 @@ async function adminCreateUser(
     throw new Error("Username is required");
   }
 
-  // Extract email and name from attributes
+  // Extract email, name, and email_verified from attributes
   const email = getAttributeValue(UserAttributes, "email");
   const firstName = getAttributeValue(UserAttributes, "given_name");
   const lastName = getAttributeValue(UserAttributes, "family_name");
+  const emailVerifiedAttr = getAttributeValue(UserAttributes, "email_verified");
 
   // Build Keycloak user payload
   const keycloakPayload = {
@@ -143,7 +158,7 @@ async function adminCreateUser(
     firstName,
     lastName,
     enabled: true,
-    emailVerified: MessageAction === "SUPPRESS",
+    emailVerified: emailVerifiedAttr === "true" || MessageAction === "SUPPRESS",
     attributes: cognitoToKeycloakAttributes(UserAttributes),
     credentials: TemporaryPassword
       ? [
@@ -189,7 +204,7 @@ async function adminDeleteUser(
 
 async function adminGetUser(
   request: AdminGetUserRequest
-): Promise<AdminGetUserResponse> {
+): Promise<Record<string, unknown>> {
   const { Username } = request;
 
   if (!Username) {
@@ -202,13 +217,16 @@ async function adminGetUser(
     throw new KeycloakError("User not found", 404);
   }
 
+  const now = Math.floor(Date.now() / 1000);
+
+  // Return epoch seconds for dates - Cognito API uses epoch timestamps
   return {
     Username: user.username,
     UserAttributes: keycloakToCognitoAttributes(user),
     UserCreateDate: user.createdTimestamp
-      ? new Date(user.createdTimestamp)
-      : undefined,
-    UserLastModifiedDate: new Date(),
+      ? Math.floor(user.createdTimestamp / 1000)
+      : now,
+    UserLastModifiedDate: now,
     Enabled: user.enabled,
     UserStatus: user.enabled ? "CONFIRMED" : "ARCHIVED",
   };

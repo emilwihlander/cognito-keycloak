@@ -1,22 +1,31 @@
 # Cognito-Keycloak
 
-AWS Cognito wrapper for Keycloak - a local development tool that provides Cognito-compatible APIs backed by Keycloak.
+AWS Cognito wrapper for Keycloak - a local development tool that provides
+Cognito-compatible APIs backed by Keycloak.
 
 ## Overview
 
-This project allows you to develop and test applications that use AWS Cognito without needing an actual AWS account. It translates Cognito API calls to Keycloak's Admin REST API, while OAuth 2.0/OIDC endpoints are proxied directly to Keycloak.
+This project allows you to develop and test applications that use AWS Cognito
+without needing an actual AWS account. It translates Cognito API calls to
+Keycloak's Admin REST API, while OAuth 2.0/OIDC endpoints are proxied directly
+to Keycloak.
 
 ## Quick Start
 
-### Using Docker
+### Using Docker Compose (recommended)
 
 ```bash
-# Build the image
-docker build -t cognito-keycloak .
+# Start both Keycloak and the Cognito wrapper
+docker compose up
 
-# Run the container
-docker run -p 3000:3000 -p 8080:8080 cognito-keycloak
+# Or with Podman
+podman compose up
 ```
+
+This starts:
+
+- **Keycloak** on `http://localhost:8080` (admin/admin)
+- **Cognito API** on `http://localhost:8081`
 
 ### Local Development
 
@@ -39,20 +48,21 @@ npm run dev
 
 Environment variables:
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PORT` | `3000` | Port for the Cognito API |
-| `KEYCLOAK_URL` | `http://localhost:8080` | Keycloak base URL |
-| `KEYCLOAK_REALM` | `cognito` | Keycloak realm to use |
-| `KEYCLOAK_ADMIN` | `admin` | Keycloak admin username |
-| `KEYCLOAK_ADMIN_PASSWORD` | `admin` | Keycloak admin password |
-| `USER_POOL_ID` | `local_pool` | Hardcoded user pool ID |
+| Variable                  | Default                 | Description              |
+| ------------------------- | ----------------------- | ------------------------ |
+| `PORT`                    | `3000`                  | Port for the Cognito API |
+| `KEYCLOAK_URL`            | `http://localhost:8080` | Keycloak base URL        |
+| `KEYCLOAK_REALM`          | `cognito`               | Keycloak realm to use    |
+| `KEYCLOAK_ADMIN`          | `admin`                 | Keycloak admin username  |
+| `KEYCLOAK_ADMIN_PASSWORD` | `admin`                 | Keycloak admin password  |
+| `USER_POOL_ID`            | `local_pool`            | Hardcoded user pool ID   |
 
 ## Endpoints
 
 ### Cognito IDP API
 
-All Cognito actions are sent as `POST` requests to `/` with the `X-Amz-Target` header:
+All Cognito actions are sent as `POST` requests to `/` with the `X-Amz-Target`
+header:
 
 ```bash
 curl -X POST http://localhost:3000/ \
@@ -63,15 +73,15 @@ curl -X POST http://localhost:3000/ \
 
 ### OAuth 2.0 / OIDC Endpoints
 
-| Endpoint | Description |
-|----------|-------------|
+| Endpoint                                | Description              |
+| --------------------------------------- | ------------------------ |
 | `GET /.well-known/openid-configuration` | OpenID Connect Discovery |
-| `GET /.well-known/jwks.json` | JSON Web Key Set |
-| `GET /oauth2/authorize` | Authorization endpoint |
-| `POST /oauth2/token` | Token endpoint |
-| `GET/POST /oauth2/userInfo` | UserInfo endpoint |
-| `POST /oauth2/revoke` | Token revocation |
-| `GET/POST /logout` | Logout endpoint |
+| `GET /.well-known/jwks.json`            | JSON Web Key Set         |
+| `GET /oauth2/authorize`                 | Authorization endpoint   |
+| `POST /oauth2/token`                    | Token endpoint           |
+| `GET/POST /oauth2/userInfo`             | UserInfo endpoint        |
+| `POST /oauth2/revoke`                   | Token revocation         |
+| `GET/POST /logout`                      | Logout endpoint          |
 
 ## Supported Actions
 
@@ -94,7 +104,7 @@ Configure the AWS SDK to use this local endpoint:
 import { CognitoIdentityProviderClient } from "@aws-sdk/client-cognito-identity-provider";
 
 const client = new CognitoIdentityProviderClient({
-  endpoint: "http://localhost:3000",
+  endpoint: "http://localhost:8081",
   region: "us-east-1",
   credentials: {
     accessKeyId: "local",
@@ -107,34 +117,70 @@ const client = new CognitoIdentityProviderClient({
 
 ```bash
 aws cognito-idp list-users \
-  --endpoint-url http://localhost:3000 \
+  --endpoint-url http://localhost:8081 \
   --user-pool-id local_pool
 ```
 
 ## Keycloak UI
 
 Access the Keycloak admin console at `http://localhost:8080` with:
+
 - Username: `admin`
 - Password: `admin`
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────┐
-│                Docker Container                  │
-│                                                  │
-│  ┌──────────────────┐    ┌──────────────────┐   │
-│  │   Hono App       │    │    Keycloak      │   │
-│  │   (Port 3000)    │───▶│   (Port 8080)    │   │
-│  │                  │    │                  │   │
-│  │ • Cognito API    │    │ • Admin REST API │   │
-│  │ • OAuth Proxy    │    │ • OIDC Endpoints │   │
-│  └──────────────────┘    └──────────────────┘   │
-│                                                  │
-└─────────────────────────────────────────────────┘
+┌──────────────────┐         ┌──────────────────┐
+│   Hono App       │         │    Keycloak      │
+│   (Port 3000)    │────────▶│   (Port 8080)    │
+│                  │         │                  │
+│ • Cognito API    │         │ • Admin REST API │
+│ • OAuth Proxy    │         │ • OIDC Endpoints │
+└──────────────────┘         └──────────────────┘
+     Your App                   Docker Container
+```
+
+## Testing
+
+### Integration Tests
+
+The integration tests run the Hono server in-process and test the Cognito API
+using the official AWS SDK. Only Keycloak needs to be running in Docker:
+
+```bash
+# Start Keycloak first
+docker compose up keycloak
+
+# Run integration tests
+npm run test:integration
+```
+
+**What's tested:**
+
+- Health check endpoints
+- `AdminCreateUser` - Create users with attributes
+- `AdminGetUser` - Retrieve user details
+- `AdminUpdateUserAttributes` - Update user attributes
+- `AdminSetUserPassword` - Set passwords
+- `AdminEnableUser` / `AdminDisableUser` - Toggle user status
+- `AdminDeleteUser` - Delete users
+- `ListUsers` - List and paginate users
+- OpenID Connect discovery endpoint
+
+### Running Tests Locally
+
+```bash
+# Run unit tests
+npm test
+
+# Run integration tests (requires Keycloak running)
+npm run test:integration
+
+# Watch mode for development
+npm run test:watch
 ```
 
 ## License
 
 MIT
-
