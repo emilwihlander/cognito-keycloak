@@ -7,6 +7,7 @@ export const config = {
     realm: process.env.KEYCLOAK_REALM || "cognito",
     adminUsername: process.env.KEYCLOAK_ADMIN || "admin",
     adminPassword: process.env.KEYCLOAK_ADMIN_PASSWORD || "admin",
+    clientId: process.env.KEYCLOAK_CLIENT_ID || "admin-cli",
   },
 
   // Cognito wrapper configuration

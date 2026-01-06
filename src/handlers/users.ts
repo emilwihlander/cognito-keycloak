@@ -3,7 +3,6 @@ import type {
   AdminCreateUserResponse,
   AdminDeleteUserRequest,
   AdminGetUserRequest,
-  AdminGetUserResponse,
   AdminUpdateUserAttributesRequest,
   AdminUpdateUserAttributesResponse,
   AdminSetUserPasswordRequest,
@@ -16,13 +15,11 @@ import type {
   ListUsersResponse,
   UserType,
   AttributeType,
+  AdminGetUserResponse,
 } from "@aws-sdk/client-cognito-identity-provider";
-import {
-  keycloakClient,
-  KeycloakError,
-  type KeycloakUser,
-} from "../keycloak/client.js";
-import { config } from "../config.js";
+import { CognitoException } from "./index.js";
+import { authenticate, keycloakClient } from "../keycloak/client.js";
+import UserRepresentation from "@keycloak/keycloak-admin-client/lib/defs/userRepresentation.js";
 
 // ============ Utility Functions ============
 
@@ -52,7 +49,7 @@ function cognitoToKeycloakAttributes(
 /**
  * Convert Keycloak user to Cognito AttributeType[]
  */
-function keycloakToCognitoAttributes(user: KeycloakUser): AttributeType[] {
+function keycloakToCognitoAttributes(user: UserRepresentation): AttributeType[] {
   const attributes: AttributeType[] = [];
 
   // Map standard fields
@@ -91,33 +88,33 @@ function keycloakToCognitoAttributes(user: KeycloakUser): AttributeType[] {
 }
 
 /**
- * Convert timestamp to epoch seconds for Cognito API
- */
-function toEpochSeconds(timestamp?: number): Date {
-  // AWS SDK expects Date objects but serializes them as epoch seconds
-  // We need to return a Date that will serialize correctly
-  if (timestamp) {
-    return new Date(timestamp);
-  }
-  return new Date();
-}
-
-/**
  * Convert Keycloak user to Cognito UserType
  * Note: Cognito API returns dates as epoch seconds (numbers)
  */
-function keycloakToCognitoUser(user: KeycloakUser): Record<string, unknown> {
+function keycloakToCognitoUser(user: UserRepresentation): UserType {
   // Cognito UserStatusType: ARCHIVED | COMPROMISED | CONFIRMED | EXTERNAL_PROVIDER | FORCE_CHANGE_PASSWORD | RESET_REQUIRED | UNCONFIRMED | UNKNOWN
-  const userStatus = user.enabled ? "CONFIRMED" : "ARCHIVED";
-  const now = Math.floor(Date.now() / 1000);
+  type UserStatusType = "ARCHIVED" | "COMPROMISED" | "CONFIRMED" | "EXTERNAL_PROVIDER" | "FORCE_CHANGE_PASSWORD" | "RESET_REQUIRED" | "UNCONFIRMED" | "UNKNOWN";
+  
+  // Determine user status based on Keycloak state
+  // - If disabled → ARCHIVED
+  // - If has UPDATE_PASSWORD required action → FORCE_CHANGE_PASSWORD (temporary password)
+  // - Otherwise → CONFIRMED
+  let userStatus: UserStatusType;
+  if (!user.enabled) {
+    userStatus = "ARCHIVED";
+  } else if (user.requiredActions?.includes("UPDATE_PASSWORD")) {
+    userStatus = "FORCE_CHANGE_PASSWORD";
+  } else {
+    userStatus = "CONFIRMED";
+  }
+
+  const createdTimestamp = user.createdTimestamp ? new Date(user.createdTimestamp) : undefined;
 
   return {
     Username: user.username,
     Attributes: keycloakToCognitoAttributes(user),
-    UserCreateDate: user.createdTimestamp
-      ? Math.floor(user.createdTimestamp / 1000)
-      : now,
-    UserLastModifiedDate: now,
+    UserCreateDate: createdTimestamp,
+    UserLastModifiedDate: createdTimestamp,
     Enabled: user.enabled,
     UserStatus: userStatus,
   };
@@ -133,17 +130,39 @@ function getAttributeValue(
   return attributes?.find((a) => a.Name === name)?.Value;
 }
 
+/**
+ * Validate that username is provided, throw CognitoException if not
+ */
+function requireUsername(username: string | undefined): asserts username is string {
+  if (!username) {
+    throw new CognitoException(
+      "InvalidParameterException",
+      "1 validation error detected: Value at 'username' failed to satisfy constraint: Member must not be null",
+      400
+    );
+  }
+}
+
+/**
+ * Find a user by username in Keycloak, throw UserNotFoundException if not found
+ */
+async function getRequiredUser(username: string): Promise<UserRepresentation> {
+  const users = await keycloakClient.users.find({ exact: true, username });
+  const user = users.at(0);
+  if (!user) {
+    throw new CognitoException("UserNotFoundException", "User does not exist.", 400);
+  }
+  return user;
+}
+
 // ============ User Action Handlers ============
 
 async function adminCreateUser(
   request: AdminCreateUserRequest
 ): Promise<AdminCreateUserResponse> {
-  const { Username, UserAttributes, TemporaryPassword, MessageAction } =
-    request;
-
-  if (!Username) {
-    throw new Error("Username is required");
-  }
+  await authenticate();
+  const { Username, UserAttributes, TemporaryPassword, MessageAction } = request;
+  requireUsername(Username);
 
   // Extract email, name, and email_verified from attributes
   const email = getAttributeValue(UserAttributes, "email");
@@ -171,62 +190,47 @@ async function adminCreateUser(
       : undefined,
   };
 
-  const { id } = await keycloakClient.createUser(keycloakPayload);
+  const result = await keycloakClient.users.create(keycloakPayload);
+
+  // Validate that we got a valid user ID back from Keycloak
+  if (!result.id) {
+    throw new CognitoException(
+      "InternalErrorException",
+      "Failed to create user: no user ID returned from identity provider",
+      500
+    );
+  }
 
   // Fetch the created user to return full details
-  const createdUser = await keycloakClient.getUserById(id);
+  // Keycloak will have set requiredActions: ["UPDATE_PASSWORD"] if temporary password was used
+  const createdUser = await keycloakClient.users.findOne({ id: result.id });
 
   return {
-    User: keycloakToCognitoUser(createdUser),
+    User: keycloakToCognitoUser(createdUser!),
   };
 }
 
 async function adminDeleteUser(
   request: AdminDeleteUserRequest
-): Promise<Record<string, never>> {
-  const { Username } = request;
-
-  if (!Username) {
-    throw new Error("Username is required");
-  }
-
-  // Find user by username first
-  const user = await keycloakClient.getUserByUsername(Username);
-
-  if (!user) {
-    throw new KeycloakError("User not found", 404);
-  }
-
-  await keycloakClient.deleteUser(user.id);
-
-  return {};
+): Promise<void> {
+  await authenticate();
+  requireUsername(request.Username);
+  const user = await getRequiredUser(request.Username);
+  await keycloakClient.users.del({ id: user.id! });
 }
 
 async function adminGetUser(
   request: AdminGetUserRequest
-): Promise<Record<string, unknown>> {
-  const { Username } = request;
+): Promise<AdminGetUserResponse> {
+  await authenticate();
+  requireUsername(request.Username);
+  const user = await getRequiredUser(request.Username);
 
-  if (!Username) {
-    throw new Error("Username is required");
-  }
-
-  const user = await keycloakClient.getUserByUsername(Username);
-
-  if (!user) {
-    throw new KeycloakError("User not found", 404);
-  }
-
-  const now = Math.floor(Date.now() / 1000);
-
-  // Return epoch seconds for dates - Cognito API uses epoch timestamps
   return {
     Username: user.username,
     UserAttributes: keycloakToCognitoAttributes(user),
-    UserCreateDate: user.createdTimestamp
-      ? Math.floor(user.createdTimestamp / 1000)
-      : now,
-    UserLastModifiedDate: now,
+    UserCreateDate: user.createdTimestamp ? new Date(user.createdTimestamp) : new Date(),
+    UserLastModifiedDate: user.createdTimestamp ? new Date(user.createdTimestamp) : new Date(),
     Enabled: user.enabled,
     UserStatus: user.enabled ? "CONFIRMED" : "ARCHIVED",
   };
@@ -235,42 +239,27 @@ async function adminGetUser(
 async function adminUpdateUserAttributes(
   request: AdminUpdateUserAttributesRequest
 ): Promise<AdminUpdateUserAttributesResponse> {
-  const { Username, UserAttributes } = request;
+  await authenticate();
+  requireUsername(request.Username);
+  const user = await getRequiredUser(request.Username);
 
-  if (!Username) {
-    throw new Error("Username is required");
+  const { UserAttributes } = request;
+  if (!UserAttributes) {
+    return {};
   }
 
-  const user = await keycloakClient.getUserByUsername(Username);
+  const email = getAttributeValue(UserAttributes, "email");
+  const firstName = getAttributeValue(UserAttributes, "given_name");
+  const lastName = getAttributeValue(UserAttributes, "family_name");
+  const emailVerified = getAttributeValue(UserAttributes, "email_verified");
 
-  if (!user) {
-    throw new KeycloakError("User not found", 404);
-  }
-
-  // Build update payload
-  const updatePayload: Partial<KeycloakUser> = {};
-
-  if (UserAttributes) {
-    const email = getAttributeValue(UserAttributes, "email");
-    const firstName = getAttributeValue(UserAttributes, "given_name");
-    const lastName = getAttributeValue(UserAttributes, "family_name");
-    const emailVerified = getAttributeValue(UserAttributes, "email_verified");
-
-    if (email !== undefined) updatePayload.email = email;
-    if (firstName !== undefined) updatePayload.firstName = firstName;
-    if (lastName !== undefined) updatePayload.lastName = lastName;
-    if (emailVerified !== undefined) {
-      updatePayload.emailVerified = emailVerified === "true";
-    }
-
-    // Update custom attributes
-    updatePayload.attributes = {
-      ...user.attributes,
-      ...cognitoToKeycloakAttributes(UserAttributes),
-    };
-  }
-
-  await keycloakClient.updateUser(user.id, updatePayload);
+  await keycloakClient.users.update({ id: user.id! }, {
+    ...(email !== undefined && { email }),
+    ...(firstName !== undefined && { firstName }),
+    ...(lastName !== undefined && { lastName }),
+    ...(emailVerified !== undefined && { emailVerified: emailVerified === "true" }),
+    attributes: { ...user.attributes, ...cognitoToKeycloakAttributes(UserAttributes) },
+  });
 
   return {};
 }
@@ -278,68 +267,47 @@ async function adminUpdateUserAttributes(
 async function adminSetUserPassword(
   request: AdminSetUserPasswordRequest
 ): Promise<AdminSetUserPasswordResponse> {
-  const { Username, Password, Permanent } = request;
-
-  if (!Username) {
-    throw new Error("Username is required");
+  await authenticate();
+  requireUsername(request.Username);
+  
+  if (!request.Password) {
+    throw new CognitoException(
+      "InvalidParameterException",
+      "1 validation error detected: Value at 'password' failed to satisfy constraint: Member must not be null",
+      400
+    );
   }
 
-  if (!Password) {
-    throw new Error("Password is required");
-  }
-
-  const user = await keycloakClient.getUserByUsername(Username);
-
-  if (!user) {
-    throw new KeycloakError("User not found", 404);
-  }
-
-  await keycloakClient.setUserPassword(user.id, Password, !Permanent);
-
+  const user = await getRequiredUser(request.Username);
+  await keycloakClient.users.resetPassword({
+    id: user.id!,
+    credential: { type: "password", value: request.Password, temporary: !request.Permanent },
+  });
   return {};
 }
 
 async function adminEnableUser(
   request: AdminEnableUserRequest
 ): Promise<AdminEnableUserResponse> {
-  const { Username } = request;
-
-  if (!Username) {
-    throw new Error("Username is required");
-  }
-
-  const user = await keycloakClient.getUserByUsername(Username);
-
-  if (!user) {
-    throw new KeycloakError("User not found", 404);
-  }
-
-  await keycloakClient.enableUser(user.id);
-
+  await authenticate();
+  requireUsername(request.Username);
+  const user = await getRequiredUser(request.Username);
+  await keycloakClient.users.update({ id: user.id! }, { enabled: true });
   return {};
 }
 
 async function adminDisableUser(
   request: AdminDisableUserRequest
 ): Promise<AdminDisableUserResponse> {
-  const { Username } = request;
-
-  if (!Username) {
-    throw new Error("Username is required");
-  }
-
-  const user = await keycloakClient.getUserByUsername(Username);
-
-  if (!user) {
-    throw new KeycloakError("User not found", 404);
-  }
-
-  await keycloakClient.disableUser(user.id);
-
+  await authenticate();
+  requireUsername(request.Username);
+  const user = await getRequiredUser(request.Username);
+  await keycloakClient.users.update({ id: user.id! }, { enabled: false });
   return {};
 }
 
 async function listUsers(request: ListUsersRequest): Promise<ListUsersResponse> {
+  await authenticate();
   const { Limit, Filter, PaginationToken } = request;
 
   // Parse pagination token (simple offset-based)
@@ -371,10 +339,10 @@ async function listUsers(request: ListUsersRequest): Promise<ListUsersResponse> 
     }
   }
 
-  const users = await keycloakClient.listUsers(searchParams);
+  const users = await keycloakClient.users.find(searchParams);
 
   // Convert to Cognito format
-  const cognitoUsers: UserType[] = users.map(keycloakToCognitoUser);
+  const cognitoUsers: UserType[] = users.map((user: UserRepresentation) => keycloakToCognitoUser(user));
 
   // Calculate next pagination token
   let nextToken: string | undefined;

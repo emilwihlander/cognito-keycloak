@@ -24,33 +24,5 @@ cognito.get("/", async (c) => {
   });
 });
 
-/**
- * DescribeUserPool - returns mock user pool info
- * This can be called via the action header or directly
- */
-cognito.get("/user-pools/:poolId", async (c) => {
-  const poolId = c.req.param("poolId");
-
-  if (poolId !== config.userPool.id) {
-    return c.json(
-      {
-        __type: "ResourceNotFoundException",
-        message: `User pool ${poolId} does not exist.`,
-      },
-      404
-    );
-  }
-
-  return c.json({
-    UserPool: {
-      Id: config.userPool.id,
-      Name: config.userPool.name,
-      Status: "Active",
-      CreationDate: new Date().toISOString(),
-      LastModifiedDate: new Date().toISOString(),
-    },
-  });
-});
-
 export { cognito };
 

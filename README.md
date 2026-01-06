@@ -96,6 +96,10 @@ curl -X POST http://localhost:3000/ \
 - `AdminDisableUser` - Disable a user
 - `ListUsers` - List all users
 
+### User Pool
+
+- `DescribeUserPool` - Get user pool configuration
+
 ## Usage with AWS SDK
 
 Configure the AWS SDK to use this local endpoint:
@@ -143,42 +147,30 @@ Access the Keycloak admin console at `http://localhost:8080` with:
 
 ## Testing
 
-### Integration Tests
-
-The integration tests run the Hono server in-process and test the Cognito API
-using the official AWS SDK. Only Keycloak needs to be running in Docker:
+Tests use the official AWS SDK against the Cognito API. Keycloak must be
+running:
 
 ```bash
-# Start Keycloak first
+# Start Keycloak
 docker compose up keycloak
 
-# Run integration tests
-npm run test:integration
-```
-
-**What's tested:**
-
-- Health check endpoints
-- `AdminCreateUser` - Create users with attributes
-- `AdminGetUser` - Retrieve user details
-- `AdminUpdateUserAttributes` - Update user attributes
-- `AdminSetUserPassword` - Set passwords
-- `AdminEnableUser` / `AdminDisableUser` - Toggle user status
-- `AdminDeleteUser` - Delete users
-- `ListUsers` - List and paginate users
-- OpenID Connect discovery endpoint
-
-### Running Tests Locally
-
-```bash
-# Run unit tests
+# Run all tests
 npm test
 
-# Run integration tests (requires Keycloak running)
-npm run test:integration
-
-# Watch mode for development
+# Watch mode
 npm run test:watch
+```
+
+The test suite includes:
+
+- Integration tests (health, users, user pool)
+- Conformance tests (compares emulator vs real AWS Cognito)
+
+For diff tests against real AWS, configure credentials via AWS CLI
+(`aws sso login`) and set `REAL_USER_POOL_ID` in `.env`:
+
+```
+REAL_USER_POOL_ID=
 ```
 
 ## License

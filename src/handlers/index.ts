@@ -1,5 +1,18 @@
 import type { Context } from "hono";
 import { userHandlers } from "./users.js";
+import { describeUserPool } from "./user-pool.js";
+
+// Cognito-style exception for validation and known errors
+export class CognitoException extends Error {
+  constructor(
+    public readonly code: string,
+    message: string,
+    public readonly httpStatusCode: number = 400
+  ) {
+    super(message);
+    this.name = code;
+  }
+}
 
 // Action handler type - accepts any JSON body and returns any response
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -16,6 +29,8 @@ const actionHandlers: Record<string, ActionHandler> = {
   AdminEnableUser: userHandlers.adminEnableUser,
   AdminDisableUser: userHandlers.adminDisableUser,
   ListUsers: userHandlers.listUsers,
+  // User pool actions
+  DescribeUserPool: describeUserPool,
 };
 
 // Extract action name from X-Amz-Target header
@@ -31,7 +46,42 @@ function parseAmzTarget(header: string | undefined): string | null {
   return null;
 }
 
-// Create a Cognito-style error response
+/**
+ * The aws sdk expects dates to be in epoch seconds, while the default serialisation of dates is ISO 8601.
+ * This function converts all dates recursively to epoch seconds to comply with the aws sdk.
+ * @param value - The value to convert to epoch seconds.
+ * @returns The value with all dates converted to epoch seconds.
+ */
+function convertDatesToEpochSeconds(value: unknown): unknown {
+  if (value === null || value === undefined) {
+    return value;
+  }
+
+  if (value instanceof Date) {
+    return Math.floor(value.getTime() / 1000);
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(convertDatesToEpochSeconds);
+  }
+
+  if (typeof value === "object") {
+    const result: Record<string, unknown> = {};
+    for (const [key, val] of Object.entries(value)) {
+      result[key] = convertDatesToEpochSeconds(val);
+    }
+    return result;
+  }
+
+  return value;
+}
+
+/**
+ * Create a Cognito-style error response
+ * @param code - The error code.
+ * @param message - The error message.
+ * @returns The error response.
+ */
 function createErrorResponse(
   code: string,
   message: string
@@ -75,28 +125,19 @@ export async function dispatchAction(c: Context): Promise<Response> {
   try {
     const body = await c.req.json();
     const result = await handler(body);
-    return c.json(result);
+    return c.json(convertDatesToEpochSeconds(result));
   } catch (error) {
     console.error(`Error handling action ${action}:`, error);
 
-    if (error instanceof Error) {
-      // Check for specific error types
-      if (error.message.includes("404")) {
-        return c.json(
-          createErrorResponse("UserNotFoundException", "User does not exist."),
-          400
-        );
-      }
-      if (error.message.includes("409")) {
-        return c.json(
-          createErrorResponse(
-            "UsernameExistsException",
-            "An account with the given username already exists."
-          ),
-          400
-        );
-      }
+    // Handle CognitoException (validation errors, known states)
+    if (error instanceof CognitoException) {
+      return c.json(
+        createErrorResponse(error.code, error.message),
+        error.httpStatusCode as 400 | 500
+      );
+    }
 
+    if (error instanceof Error) {
       return c.json(
         createErrorResponse("InternalErrorException", error.message),
         500
