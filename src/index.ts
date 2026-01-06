@@ -16,8 +16,8 @@ console.log(`
 `);
 
 serve({
-  fetch: app.fetch,
-  port,
+	fetch: app.fetch,
+	port,
 });
 
 export default app;
