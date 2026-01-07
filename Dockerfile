@@ -56,9 +56,6 @@ ENV USER_POOL_ID=local_pool
 # Expose ports: 4566 for Cognito API, 8080 for Keycloak (optional direct access)
 EXPOSE 4566 8080
 
-# Health check against the Cognito wrapper (Keycloak image doesn't have curl, but we check via TCP in entrypoint)
-HEALTHCHECK --interval=10s --timeout=5s --start-period=60s --retries=10 \
-    CMD exec 3<>/dev/tcp/localhost/4566 && echo -e "GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n" >&3 && cat <&3 | grep -q '"status":"ok"'
 
 # Use our custom entrypoint that starts both services
 ENTRYPOINT ["/opt/cognito/entrypoint.sh"]
