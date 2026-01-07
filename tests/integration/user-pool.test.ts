@@ -1,10 +1,10 @@
+import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import {
 	AdminCreateUserCommand,
 	AdminDeleteUserCommand,
 	type CognitoIdentityProviderClient,
 	DescribeUserPoolCommand,
 } from "@aws-sdk/client-cognito-identity-provider";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { setupContainer, teardownContainer, USER_POOL_ID } from "./setup.js";
 
 describe("Cognito User Pool", () => {

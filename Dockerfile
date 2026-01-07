@@ -1,18 +1,19 @@
 # Build the TypeScript app
-FROM node:22-alpine AS builder
+FROM oven/bun:1-alpine AS builder
 
 WORKDIR /app
 
 # Copy package files
-COPY package*.json ./
+COPY package.json ./
 COPY tsconfig.json ./
+COPY bun.lockb ./
 
 # Install dependencies
-RUN npm ci
+RUN bun install --frozen-lockfile
 
 # Copy source and build
 COPY src/ ./src/
-RUN npm run build
+RUN bun run build
 
 # Production image - Node.js only
 FROM node:22-alpine

@@ -1,3 +1,4 @@
+import { beforeAll, describe, expect, it } from "bun:test";
 import { isDeepStrictEqual } from "node:util";
 import {
 	AdminCreateUserCommand,
@@ -10,12 +11,7 @@ import {
 	CognitoIdentityProviderClient,
 	ListUsersCommand,
 } from "@aws-sdk/client-cognito-identity-provider";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import {
-	setupContainer,
-	teardownContainer,
-	USER_POOL_ID,
-} from "../integration/setup.js";
+import { setupEnvironment, USER_POOL_ID } from "../setup.js";
 
 const REAL_USER_POOL_ID = process.env.REAL_USER_POOL_ID!;
 const REAL_COGNITO_REGION = process.env.REAL_COGNITO_REGION || "us-east-1";
@@ -238,342 +234,338 @@ async function cleanupTestUsers(
 	}
 }
 
-describe.skipIf(!process.env.REAL_USER_POOL_ID)(
-	"Conformance tests (emulator vs real AWS Cognito)",
-	() => {
-		let localClient: CognitoIdentityProviderClient;
-		let realClient: CognitoIdentityProviderClient | null = null;
+const conformanceDescribe = process.env.REAL_USER_POOL_ID
+	? describe
+	: describe.skip;
 
-		beforeAll(async () => {
-			const setup = await setupContainer();
-			localClient = setup.cognitoClient;
+conformanceDescribe("Conformance tests (emulator vs real AWS Cognito)", () => {
+	let localClient: CognitoIdentityProviderClient;
+	let realClient: CognitoIdentityProviderClient | null = null;
 
-			// Rely on the AWS SDK default credential chain (same idea as AWS CLI),
-			// so profiles/SSO/shared config work out of the box.
-			realClient = new CognitoIdentityProviderClient({
-				region: REAL_COGNITO_REGION,
+	beforeAll(async () => {
+		const setup = await setupEnvironment();
+		localClient = setup.cognitoClient;
+
+		// Rely on the AWS SDK default credential chain (same idea as AWS CLI),
+		// so profiles/SSO/shared config work out of the box.
+		realClient = new CognitoIdentityProviderClient({
+			region: REAL_COGNITO_REGION,
+		});
+
+		await assertAwsCredentialsResolvable(realClient);
+
+		// Clean up any leftover test users from previous runs
+		await Promise.all([
+			cleanupTestUsers(localClient, USER_POOL_ID),
+			cleanupTestUsers(realClient, REAL_USER_POOL_ID),
+		]);
+	});
+
+	it("ListUsers: should list created user with matching structure", async () => {
+		const username = `conformance-list-${Date.now()}`;
+		const email = `${username}@hejare.se`;
+
+		// Create a user on both sides first
+		const createLocal = new AdminCreateUserCommand({
+			UserPoolId: USER_POOL_ID,
+			Username: username,
+			MessageAction: "SUPPRESS",
+			TemporaryPassword: "TempPass123!",
+			UserAttributes: [
+				{ Name: "email", Value: email },
+				{ Name: "email_verified", Value: "true" },
+				{ Name: "given_name", Value: "ListTest" },
+				{ Name: "family_name", Value: "User" },
+			],
+		});
+		const createReal = new AdminCreateUserCommand({
+			UserPoolId: REAL_USER_POOL_ID,
+			Username: username,
+			MessageAction: "SUPPRESS",
+			TemporaryPassword: "TempPass123!",
+			UserAttributes: [
+				{ Name: "email", Value: email },
+				{ Name: "email_verified", Value: "true" },
+				{ Name: "given_name", Value: "ListTest" },
+				{ Name: "family_name", Value: "User" },
+			],
+		});
+
+		const [createL, createR] = await Promise.all([
+			capture(localClient, createLocal),
+			capture(realClient!, createReal),
+		]);
+
+		// Ensure both users were created successfully
+		expect(createL.ok).toBe(true);
+		expect(createR.ok).toBe(true);
+
+		try {
+			// List users with a filter to find our specific test user
+			const listLocal = new ListUsersCommand({
+				UserPoolId: USER_POOL_ID,
+				Filter: `username = "${username}"`,
+			});
+			const listReal = new ListUsersCommand({
+				UserPoolId: REAL_USER_POOL_ID,
+				Filter: `username = "${username}"`,
 			});
 
-			await assertAwsCredentialsResolvable(realClient);
+			const [local, real] = await Promise.all([
+				capture(localClient, listLocal),
+				capture(realClient!, listReal),
+			]);
 
-			// Clean up any leftover test users from previous runs
+			expect(normalizeForCompare(local)).toEqual(normalizeForCompare(real));
+		} finally {
+			// Cleanup: delete the test user on both sides
 			await Promise.all([
-				cleanupTestUsers(localClient, USER_POOL_ID),
-				cleanupTestUsers(realClient, REAL_USER_POOL_ID),
+				safeDeleteUser(localClient, USER_POOL_ID, username),
+				safeDeleteUser(realClient!, REAL_USER_POOL_ID, username),
 			]);
+		}
+	});
+
+	it("AdminGetUser: non-existent username (should be a clean UserNotFoundException)", async () => {
+		const missingUsername = `conformance-nonexistent-${Date.now()}`;
+
+		const cmdLocal = new AdminGetUserCommand({
+			UserPoolId: USER_POOL_ID,
+			Username: missingUsername,
+		});
+		const cmdReal = new AdminGetUserCommand({
+			UserPoolId: REAL_USER_POOL_ID,
+			Username: missingUsername,
 		});
 
-		afterAll(async () => {
-			await teardownContainer();
-			realClient = null;
+		const [local, real] = await Promise.all([
+			capture(localClient, cmdLocal),
+			capture(realClient!, cmdReal),
+		]);
+
+		expect(normalizeForCompare(local)).toEqual(normalizeForCompare(real));
+	});
+
+	it("AdminCreateUser: invalid payload (missing Username) should match Cognito's validation behavior", async () => {
+		const cmdLocal = new AdminCreateUserCommand({
+			UserPoolId: USER_POOL_ID,
+			// biome-ignore lint/suspicious/noExplicitAny: we want to test the invalid payload
+		} as any);
+
+		const cmdReal = new AdminCreateUserCommand({
+			UserPoolId: REAL_USER_POOL_ID,
+			// biome-ignore lint/suspicious/noExplicitAny: we want to test the invalid payload
+		} as any);
+
+		const [local, real] = await Promise.all([
+			capture(localClient, cmdLocal),
+			capture(realClient!, cmdReal),
+		]);
+
+		expect(normalizeForCompare(local)).toEqual(normalizeForCompare(real));
+	});
+
+	it("User lifecycle (mutating): create → update attrs → set password → disable/enable → delete", async () => {
+		const diffs: Array<{
+			step: string;
+			local: Normalized;
+			real: Normalized;
+		}> = [];
+
+		const username = `conformance-lifecycle-${Date.now()}`;
+		const email = `${username}@hejare.se`;
+
+		const createLocal = new AdminCreateUserCommand({
+			UserPoolId: USER_POOL_ID,
+			Username: username,
+			MessageAction: "SUPPRESS",
+			TemporaryPassword: "TempPass123!",
+			UserAttributes: [
+				{ Name: "email", Value: email },
+				{ Name: "email_verified", Value: "true" },
+				{ Name: "given_name", Value: "Diff" },
+				{ Name: "family_name", Value: "Suite" },
+			],
 		});
 
-		it("ListUsers: should list created user with matching structure", async () => {
-			const username = `conformance-list-${Date.now()}`;
-			const email = `${username}@hejare.se`;
-
-			// Create a user on both sides first
-			const createLocal = new AdminCreateUserCommand({
-				UserPoolId: USER_POOL_ID,
-				Username: username,
-				MessageAction: "SUPPRESS",
-				TemporaryPassword: "TempPass123!",
-				UserAttributes: [
-					{ Name: "email", Value: email },
-					{ Name: "email_verified", Value: "true" },
-					{ Name: "given_name", Value: "ListTest" },
-					{ Name: "family_name", Value: "User" },
-				],
-			});
-			const createReal = new AdminCreateUserCommand({
-				UserPoolId: REAL_USER_POOL_ID,
-				Username: username,
-				MessageAction: "SUPPRESS",
-				TemporaryPassword: "TempPass123!",
-				UserAttributes: [
-					{ Name: "email", Value: email },
-					{ Name: "email_verified", Value: "true" },
-					{ Name: "given_name", Value: "ListTest" },
-					{ Name: "family_name", Value: "User" },
-				],
-			});
-
-			const [createL, createR] = await Promise.all([
-				capture(localClient, createLocal),
-				capture(realClient!, createReal),
-			]);
-
-			// Ensure both users were created successfully
-			expect(createL.ok).toBe(true);
-			expect(createR.ok).toBe(true);
-
-			try {
-				// List users with a filter to find our specific test user
-				const listLocal = new ListUsersCommand({
-					UserPoolId: USER_POOL_ID,
-					Filter: `username = "${username}"`,
-				});
-				const listReal = new ListUsersCommand({
-					UserPoolId: REAL_USER_POOL_ID,
-					Filter: `username = "${username}"`,
-				});
-
-				const [local, real] = await Promise.all([
-					capture(localClient, listLocal),
-					capture(realClient!, listReal),
-				]);
-
-				expect(normalizeForCompare(local)).toEqual(normalizeForCompare(real));
-			} finally {
-				// Cleanup: delete the test user on both sides
-				await Promise.all([
-					safeDeleteUser(localClient, USER_POOL_ID, username),
-					safeDeleteUser(realClient!, REAL_USER_POOL_ID, username),
-				]);
-			}
+		const createReal = new AdminCreateUserCommand({
+			UserPoolId: REAL_USER_POOL_ID,
+			Username: username,
+			MessageAction: "SUPPRESS",
+			TemporaryPassword: "TempPass123!",
+			UserAttributes: [
+				{ Name: "email", Value: email },
+				{ Name: "email_verified", Value: "true" },
+				{ Name: "given_name", Value: "Diff" },
+				{ Name: "family_name", Value: "Suite" },
+			],
 		});
 
-		it("AdminGetUser: non-existent username (should be a clean UserNotFoundException)", async () => {
-			const missingUsername = `conformance-nonexistent-${Date.now()}`;
+		const [createL, createR] = await Promise.all([
+			capture(localClient, createLocal),
+			capture(realClient!, createReal),
+		]);
+		compareOrCollect("AdminCreateUser", createL, createR, diffs);
 
-			const cmdLocal = new AdminGetUserCommand({
-				UserPoolId: USER_POOL_ID,
-				Username: missingUsername,
-			});
-			const cmdReal = new AdminGetUserCommand({
-				UserPoolId: REAL_USER_POOL_ID,
-				Username: missingUsername,
-			});
-
-			const [local, real] = await Promise.all([
-				capture(localClient, cmdLocal),
-				capture(realClient!, cmdReal),
-			]);
-
-			expect(normalizeForCompare(local)).toEqual(normalizeForCompare(real));
-		});
-
-		it("AdminCreateUser: invalid payload (missing Username) should match Cognito's validation behavior", async () => {
-			const cmdLocal = new AdminCreateUserCommand({
-				UserPoolId: USER_POOL_ID,
-				// biome-ignore lint/suspicious/noExplicitAny: we want to test the invalid payload
-			} as any);
-
-			const cmdReal = new AdminCreateUserCommand({
-				UserPoolId: REAL_USER_POOL_ID,
-				// biome-ignore lint/suspicious/noExplicitAny: we want to test the invalid payload
-			} as any);
-
-			const [local, real] = await Promise.all([
-				capture(localClient, cmdLocal),
-				capture(realClient!, cmdReal),
-			]);
-
-			expect(normalizeForCompare(local)).toEqual(normalizeForCompare(real));
-		});
-
-		it("User lifecycle (mutating): create → update attrs → set password → disable/enable → delete", async () => {
-			const diffs: Array<{
-				step: string;
-				local: Normalized;
-				real: Normalized;
-			}> = [];
-
-			const username = `conformance-lifecycle-${Date.now()}`;
-			const email = `${username}@hejare.se`;
-
-			const createLocal = new AdminCreateUserCommand({
-				UserPoolId: USER_POOL_ID,
-				Username: username,
-				MessageAction: "SUPPRESS",
-				TemporaryPassword: "TempPass123!",
-				UserAttributes: [
-					{ Name: "email", Value: email },
-					{ Name: "email_verified", Value: "true" },
-					{ Name: "given_name", Value: "Diff" },
-					{ Name: "family_name", Value: "Suite" },
-				],
-			});
-
-			const createReal = new AdminCreateUserCommand({
-				UserPoolId: REAL_USER_POOL_ID,
-				Username: username,
-				MessageAction: "SUPPRESS",
-				TemporaryPassword: "TempPass123!",
-				UserAttributes: [
-					{ Name: "email", Value: email },
-					{ Name: "email_verified", Value: "true" },
-					{ Name: "given_name", Value: "Diff" },
-					{ Name: "family_name", Value: "Suite" },
-				],
-			});
-
-			const [createL, createR] = await Promise.all([
-				capture(localClient, createLocal),
-				capture(realClient!, createReal),
-			]);
-			compareOrCollect("AdminCreateUser", createL, createR, diffs);
-
-			try {
-				// Only proceed if both created successfully
-				if (!createL.ok || !createR.ok) {
-					if (diffs.length > 0) {
-						throw new Error(
-							`Conformance failure(s):\n${JSON.stringify(diffs, null, 2)}`,
-						);
-					}
-					throw new Error("AdminCreateUser failed on at least one side.");
+		try {
+			// Only proceed if both created successfully
+			if (!createL.ok || !createR.ok) {
+				if (diffs.length > 0) {
+					throw new Error(
+						`Conformance failure(s):\n${JSON.stringify(diffs, null, 2)}`,
+					);
 				}
-
-				const [getL, getR] = await Promise.all([
-					capture(
-						localClient,
-						new AdminGetUserCommand({
-							UserPoolId: USER_POOL_ID,
-							Username: username,
-						}),
-					),
-					capture(
-						realClient!,
-						new AdminGetUserCommand({
-							UserPoolId: REAL_USER_POOL_ID,
-							Username: username,
-						}),
-					),
-				]);
-				compareOrCollect("AdminGetUser (after create)", getL, getR, diffs);
-
-				const [updL, updR] = await Promise.all([
-					capture(
-						localClient,
-						new AdminUpdateUserAttributesCommand({
-							UserPoolId: USER_POOL_ID,
-							Username: username,
-							UserAttributes: [{ Name: "given_name", Value: "DiffUpdated" }],
-						}),
-					),
-					capture(
-						realClient!,
-						new AdminUpdateUserAttributesCommand({
-							UserPoolId: REAL_USER_POOL_ID,
-							Username: username,
-							UserAttributes: [{ Name: "given_name", Value: "DiffUpdated" }],
-						}),
-					),
-				]);
-				compareOrCollect("AdminUpdateUserAttributes", updL, updR, diffs);
-
-				const [pwdL, pwdR] = await Promise.all([
-					capture(
-						localClient,
-						new AdminSetUserPasswordCommand({
-							UserPoolId: USER_POOL_ID,
-							Username: username,
-							Password: "PermPass123!",
-							Permanent: true,
-						}),
-					),
-					capture(
-						realClient!,
-						new AdminSetUserPasswordCommand({
-							UserPoolId: REAL_USER_POOL_ID,
-							Username: username,
-							Password: "PermPass123!",
-							Permanent: true,
-						}),
-					),
-				]);
-				compareOrCollect("AdminSetUserPassword", pwdL, pwdR, diffs);
-
-				const [disL, disR] = await Promise.all([
-					capture(
-						localClient,
-						new AdminDisableUserCommand({
-							UserPoolId: USER_POOL_ID,
-							Username: username,
-						}),
-					),
-					capture(
-						realClient!,
-						new AdminDisableUserCommand({
-							UserPoolId: REAL_USER_POOL_ID,
-							Username: username,
-						}),
-					),
-				]);
-				compareOrCollect("AdminDisableUser", disL, disR, diffs);
-
-				const [enL, enR] = await Promise.all([
-					capture(
-						localClient,
-						new AdminEnableUserCommand({
-							UserPoolId: USER_POOL_ID,
-							Username: username,
-						}),
-					),
-					capture(
-						realClient!,
-						new AdminEnableUserCommand({
-							UserPoolId: REAL_USER_POOL_ID,
-							Username: username,
-						}),
-					),
-				]);
-				compareOrCollect("AdminEnableUser", enL, enR, diffs);
-
-				const [delL, delR] = await Promise.all([
-					capture(
-						localClient,
-						new AdminDeleteUserCommand({
-							UserPoolId: USER_POOL_ID,
-							Username: username,
-						}),
-					),
-					capture(
-						realClient!,
-						new AdminDeleteUserCommand({
-							UserPoolId: REAL_USER_POOL_ID,
-							Username: username,
-						}),
-					),
-				]);
-				compareOrCollect("AdminDeleteUser", delL, delR, diffs);
-
-				const [getAfterDelL, getAfterDelR] = await Promise.all([
-					capture(
-						localClient,
-						new AdminGetUserCommand({
-							UserPoolId: USER_POOL_ID,
-							Username: username,
-						}),
-					),
-					capture(
-						realClient!,
-						new AdminGetUserCommand({
-							UserPoolId: REAL_USER_POOL_ID,
-							Username: username,
-						}),
-					),
-				]);
-				compareOrCollect(
-					"AdminGetUser (after delete)",
-					getAfterDelL,
-					getAfterDelR,
-					diffs,
-				);
-			} finally {
-				// Best-effort cleanup on both sides (even if tests fail mid-way)
-				await Promise.all([
-					safeDeleteUser(localClient, USER_POOL_ID, username),
-					safeDeleteUser(realClient!, REAL_USER_POOL_ID, username),
-				]);
+				throw new Error("AdminCreateUser failed on at least one side.");
 			}
 
-			if (diffs.length > 0) {
-				throw new Error(
-					`Conformance failure(s):\n${JSON.stringify(diffs, null, 2)}`,
-				);
-			}
-		});
-	},
-);
+			const [getL, getR] = await Promise.all([
+				capture(
+					localClient,
+					new AdminGetUserCommand({
+						UserPoolId: USER_POOL_ID,
+						Username: username,
+					}),
+				),
+				capture(
+					realClient!,
+					new AdminGetUserCommand({
+						UserPoolId: REAL_USER_POOL_ID,
+						Username: username,
+					}),
+				),
+			]);
+			compareOrCollect("AdminGetUser (after create)", getL, getR, diffs);
+
+			const [updL, updR] = await Promise.all([
+				capture(
+					localClient,
+					new AdminUpdateUserAttributesCommand({
+						UserPoolId: USER_POOL_ID,
+						Username: username,
+						UserAttributes: [{ Name: "given_name", Value: "DiffUpdated" }],
+					}),
+				),
+				capture(
+					realClient!,
+					new AdminUpdateUserAttributesCommand({
+						UserPoolId: REAL_USER_POOL_ID,
+						Username: username,
+						UserAttributes: [{ Name: "given_name", Value: "DiffUpdated" }],
+					}),
+				),
+			]);
+			compareOrCollect("AdminUpdateUserAttributes", updL, updR, diffs);
+
+			const [pwdL, pwdR] = await Promise.all([
+				capture(
+					localClient,
+					new AdminSetUserPasswordCommand({
+						UserPoolId: USER_POOL_ID,
+						Username: username,
+						Password: "PermPass123!",
+						Permanent: true,
+					}),
+				),
+				capture(
+					realClient!,
+					new AdminSetUserPasswordCommand({
+						UserPoolId: REAL_USER_POOL_ID,
+						Username: username,
+						Password: "PermPass123!",
+						Permanent: true,
+					}),
+				),
+			]);
+			compareOrCollect("AdminSetUserPassword", pwdL, pwdR, diffs);
+
+			const [disL, disR] = await Promise.all([
+				capture(
+					localClient,
+					new AdminDisableUserCommand({
+						UserPoolId: USER_POOL_ID,
+						Username: username,
+					}),
+				),
+				capture(
+					realClient!,
+					new AdminDisableUserCommand({
+						UserPoolId: REAL_USER_POOL_ID,
+						Username: username,
+					}),
+				),
+			]);
+			compareOrCollect("AdminDisableUser", disL, disR, diffs);
+
+			const [enL, enR] = await Promise.all([
+				capture(
+					localClient,
+					new AdminEnableUserCommand({
+						UserPoolId: USER_POOL_ID,
+						Username: username,
+					}),
+				),
+				capture(
+					realClient!,
+					new AdminEnableUserCommand({
+						UserPoolId: REAL_USER_POOL_ID,
+						Username: username,
+					}),
+				),
+			]);
+			compareOrCollect("AdminEnableUser", enL, enR, diffs);
+
+			const [delL, delR] = await Promise.all([
+				capture(
+					localClient,
+					new AdminDeleteUserCommand({
+						UserPoolId: USER_POOL_ID,
+						Username: username,
+					}),
+				),
+				capture(
+					realClient!,
+					new AdminDeleteUserCommand({
+						UserPoolId: REAL_USER_POOL_ID,
+						Username: username,
+					}),
+				),
+			]);
+			compareOrCollect("AdminDeleteUser", delL, delR, diffs);
+
+			const [getAfterDelL, getAfterDelR] = await Promise.all([
+				capture(
+					localClient,
+					new AdminGetUserCommand({
+						UserPoolId: USER_POOL_ID,
+						Username: username,
+					}),
+				),
+				capture(
+					realClient!,
+					new AdminGetUserCommand({
+						UserPoolId: REAL_USER_POOL_ID,
+						Username: username,
+					}),
+				),
+			]);
+			compareOrCollect(
+				"AdminGetUser (after delete)",
+				getAfterDelL,
+				getAfterDelR,
+				diffs,
+			);
+		} finally {
+			// Best-effort cleanup on both sides (even if tests fail mid-way)
+			await Promise.all([
+				safeDeleteUser(localClient, USER_POOL_ID, username),
+				safeDeleteUser(realClient!, REAL_USER_POOL_ID, username),
+			]);
+		}
+
+		if (diffs.length > 0) {
+			throw new Error(
+				`Conformance failure(s):\n${JSON.stringify(diffs, null, 2)}`,
+			);
+		}
+	});
+});

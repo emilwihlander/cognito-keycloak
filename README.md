@@ -31,7 +31,7 @@ This starts:
 
 ```bash
 # Install dependencies
-npm install
+bun install
 
 # Start Keycloak separately with realm import
 docker run -p 8080:8080 \
@@ -41,7 +41,7 @@ docker run -p 8080:8080 \
   quay.io/keycloak/keycloak:26.0 start-dev --import-realm
 
 # Start the wrapper
-npm run dev
+bun run dev
 ```
 
 ## Configuration
@@ -155,10 +155,10 @@ running:
 docker compose up keycloak
 
 # Run all tests
-npm test
+bun test
 
 # Watch mode
-npm run test:watch
+bun test --watch
 ```
 
 The test suite includes:
