@@ -35,18 +35,18 @@ Override defaults with environment variables:
 
 ```bash
 docker run -p 4566:4566 -p 8080:8080 \
-  -e KEYCLOAK_ADMIN=myadmin \
-  -e KEYCLOAK_ADMIN_PASSWORD=mysecret \
+  -e KC_BOOTSTRAP_ADMIN_USERNAME=myadmin \
+  -e KC_BOOTSTRAP_ADMIN_PASSWORD=mysecret \
   -e USER_POOL_ID=my_pool \
   cognito-keycloak
 ```
 
-| Variable                  | Default      | Description              |
-| ------------------------- | ------------ | ------------------------ |
-| `PORT`                    | `4566`       | Port for the Cognito API |
-| `KEYCLOAK_ADMIN`          | `admin`      | Keycloak admin username  |
-| `KEYCLOAK_ADMIN_PASSWORD` | `admin`      | Keycloak admin password  |
-| `USER_POOL_ID`            | `local_pool` | Hardcoded user pool ID   |
+| Variable                      | Default      | Description              |
+| ----------------------------- | ------------ | ------------------------ |
+| `PORT`                        | `4566`       | Port for the Cognito API |
+| `KC_BOOTSTRAP_ADMIN_USERNAME` | `admin`      | Keycloak admin username  |
+| `KC_BOOTSTRAP_ADMIN_PASSWORD` | `admin`      | Keycloak admin password  |
+| `USER_POOL_ID`                | `local_pool` | Hardcoded user pool ID   |
 
 ## Local Development
 
@@ -58,8 +58,8 @@ bun install
 
 # Start Keycloak (required for the wrapper to function)
 docker run -d --name keycloak -p 8080:8080 \
-  -e KEYCLOAK_ADMIN=admin \
-  -e KEYCLOAK_ADMIN_PASSWORD=admin \
+  -e KC_BOOTSTRAP_ADMIN_USERNAME=admin \
+  -e KC_BOOTSTRAP_ADMIN_PASSWORD=admin \
   -v $(pwd)/keycloak:/opt/keycloak/data/import \
   quay.io/keycloak/keycloak:26.0 start-dev --import-realm
 
@@ -173,8 +173,8 @@ docker run -d --name cognito-test -p 8080:8080 cognito-keycloak
 
 # Option 2: Run just Keycloak for development
 docker run -d --name keycloak -p 8080:8080 \
-  -e KEYCLOAK_ADMIN=admin \
-  -e KEYCLOAK_ADMIN_PASSWORD=admin \
+  -e KC_BOOTSTRAP_ADMIN_USERNAME=admin \
+  -e KC_BOOTSTRAP_ADMIN_PASSWORD=admin \
   -v $(pwd)/keycloak:/opt/keycloak/data/import \
   quay.io/keycloak/keycloak:26.0 start-dev --import-realm
 

@@ -5,8 +5,8 @@ export const config = {
 	keycloak: {
 		baseUrl: process.env.KEYCLOAK_URL || "http://localhost:8080",
 		realm: process.env.KEYCLOAK_REALM || "cognito",
-		adminUsername: process.env.KEYCLOAK_ADMIN || "admin",
-		adminPassword: process.env.KEYCLOAK_ADMIN_PASSWORD || "admin",
+		adminUsername: process.env.KC_BOOTSTRAP_ADMIN_USERNAME || "admin",
+		adminPassword: process.env.KC_BOOTSTRAP_ADMIN_PASSWORD || "admin",
 		clientId: process.env.KEYCLOAK_CLIENT_ID || "admin-cli",
 	},
 

@@ -46,8 +46,8 @@ COPY entrypoint.sh /opt/cognito/entrypoint.sh
 RUN chmod +x /opt/cognito/entrypoint.sh
 
 # Environment variables
-ENV KEYCLOAK_ADMIN=admin
-ENV KEYCLOAK_ADMIN_PASSWORD=admin
+ENV KC_BOOTSTRAP_ADMIN_USERNAME=admin
+ENV KC_BOOTSTRAP_ADMIN_PASSWORD=admin
 ENV KEYCLOAK_URL=http://localhost:8080
 ENV KEYCLOAK_REALM=cognito
 ENV PORT=4566
