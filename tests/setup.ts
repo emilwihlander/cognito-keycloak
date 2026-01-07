@@ -3,9 +3,9 @@ import type { ServerType } from "@hono/node-server";
 import { serve } from "@hono/node-server";
 import app from "../src/app.js";
 
-const COGNITO_ENDPOINT = "http://localhost:9000";
-const KEYCLOAK_ENDPOINT =
-	process.env.KEYCLOAK_ENDPOINT || "http://localhost:8080";
+const COGNITO_URL = "http://localhost:9000";
+const KEYCLOAK_URL =
+	process.env.KEYCLOAK_URL || "http://localhost:8080";
 
 export const USER_POOL_ID = process.env.USER_POOL_ID || "local_pool";
 
@@ -48,15 +48,15 @@ export async function setupEnvironment(): Promise<{
 	if (cognitoClient) {
 		return {
 			cognitoClient,
-			cognitoEndpoint: COGNITO_ENDPOINT,
-			keycloakEndpoint: KEYCLOAK_ENDPOINT,
+			cognitoEndpoint: COGNITO_URL,
+			keycloakEndpoint: KEYCLOAK_URL,
 		};
 	}
 
-	console.log(`Connecting to Cognito API at ${COGNITO_ENDPOINT}...`);
+	console.log(`Connecting to Cognito API at ${COGNITO_URL}...`);
 
 	cognitoClient = new CognitoIdentityProviderClient({
-		endpoint: COGNITO_ENDPOINT,
+		endpoint: COGNITO_URL,
 		region: "us-east-1",
 		credentials: {
 			accessKeyId: "local",
@@ -68,8 +68,8 @@ export async function setupEnvironment(): Promise<{
 
 	return {
 		cognitoClient,
-		cognitoEndpoint: COGNITO_ENDPOINT,
-		keycloakEndpoint: KEYCLOAK_ENDPOINT,
+		cognitoEndpoint: COGNITO_URL,
+		keycloakEndpoint: KEYCLOAK_URL,
 	};
 }
 

@@ -131,6 +131,7 @@ const client = new CognitoIdentityProviderClient({
 
 ```bash
 aws cognito-idp list-users \
+  --region us-east-1 \
   --endpoint-url http://localhost:4566 \
   --user-pool-id local_pool
 ```
@@ -182,7 +183,7 @@ docker run -d --name keycloak -p 8080:8080 \
 bun test
 
 # If Keycloak is running on a different port, set KEYCLOAK_URL:
-KEYCLOAK_URL=http://localhost:8180 KEYCLOAK_ENDPOINT=http://localhost:8180 bun test
+KEYCLOAK_URL=http://localhost:8180 bun test
 
 # Watch mode
 bun test --watch
