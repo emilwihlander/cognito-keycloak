@@ -4,8 +4,7 @@ import { serve } from "@hono/node-server";
 import app from "../src/app.js";
 
 const COGNITO_URL = "http://localhost:9000";
-const KEYCLOAK_URL =
-	process.env.KEYCLOAK_URL || "http://localhost:8080";
+const KEYCLOAK_URL = process.env.KEYCLOAK_URL || "http://localhost:8080";
 
 export const USER_POOL_ID = process.env.USER_POOL_ID || "local_pool";
 
