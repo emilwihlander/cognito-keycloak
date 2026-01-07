@@ -10,14 +10,14 @@ import {
 	type CognitoIdentityProviderClient,
 	ListUsersCommand,
 } from "@aws-sdk/client-cognito-identity-provider";
-import { setupContainer, teardownContainer, USER_POOL_ID } from "./setup.js";
+import { setupEnvironment, USER_POOL_ID } from "../setup.js";
 
 describe("Cognito User Management", () => {
 	let client: CognitoIdentityProviderClient;
 	const createdUsers: string[] = [];
 
 	beforeAll(async () => {
-		const setup = await setupContainer();
+		const setup = await setupEnvironment();
 		client = setup.cognitoClient;
 	});
 
@@ -35,7 +35,6 @@ describe("Cognito User Management", () => {
 				// Ignore errors during cleanup
 			}
 		}
-		await teardownContainer();
 	});
 
 	describe("AdminCreateUser", () => {

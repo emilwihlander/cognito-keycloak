@@ -1,18 +1,14 @@
-import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { setupContainer, teardownContainer } from "./setup.js";
+import { beforeAll, describe, expect, it } from "bun:test";
+import { setupEnvironment } from "../setup.js";
 
 describe("Health Check", () => {
 	let cognitoEndpoint: string;
 	let keycloakEndpoint: string;
 
 	beforeAll(async () => {
-		const setup = await setupContainer();
+		const setup = await setupEnvironment();
 		cognitoEndpoint = setup.cognitoEndpoint;
 		keycloakEndpoint = setup.keycloakEndpoint;
-	});
-
-	afterAll(async () => {
-		await teardownContainer();
 	});
 
 	it("should return healthy status from Cognito wrapper", async () => {

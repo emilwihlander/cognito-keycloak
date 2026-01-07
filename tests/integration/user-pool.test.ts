@@ -1,22 +1,18 @@
-import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { beforeAll, describe, expect, it } from "bun:test";
 import {
 	AdminCreateUserCommand,
 	AdminDeleteUserCommand,
 	type CognitoIdentityProviderClient,
 	DescribeUserPoolCommand,
 } from "@aws-sdk/client-cognito-identity-provider";
-import { setupContainer, teardownContainer, USER_POOL_ID } from "./setup.js";
+import { setupEnvironment, USER_POOL_ID } from "../setup.js";
 
 describe("Cognito User Pool", () => {
 	let client: CognitoIdentityProviderClient;
 
 	beforeAll(async () => {
-		const setup = await setupContainer();
+		const setup = await setupEnvironment();
 		client = setup.cognitoClient;
-	});
-
-	afterAll(async () => {
-		await teardownContainer();
 	});
 
 	describe("DescribeUserPool", () => {
