@@ -10,18 +10,19 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
-    services:
-      keycloak:
-        image: quay.io/keycloak/keycloak:26.0
-        ports:
-          - 8080:8080
-        env:
-          KC_BOOTSTRAP_ADMIN_USERNAME: admin
-          KC_BOOTSTRAP_ADMIN_PASSWORD: admin
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Start Keycloak
+        run: |
+          docker run -d --name keycloak \
+            -p 8080:8080 \
+            -v ${{ github.workspace }}/keycloak/realm-config.json:/opt/keycloak/data/import/realm-config.json:ro \
+            -e KC_BOOTSTRAP_ADMIN_USERNAME=admin \
+            -e KC_BOOTSTRAP_ADMIN_PASSWORD=admin \
+            quay.io/keycloak/keycloak:26.0 \
+            start-dev --import-realm
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -40,7 +41,7 @@ jobs:
       - name: Wait for Keycloak to be ready
         run: |
           echo "Waiting for Keycloak to be ready..."
-          timeout 120 bash -c 'until curl -f http://localhost:8080/realms/cognito/.well-known/openid-configuration 2>/dev/null; do sleep 2; done'
+          timeout 120 bash -c 'until curl -sf http://localhost:8080/realms/cognito/.well-known/openid-configuration; do sleep 2; done'
           echo "Keycloak is ready!"
 
       - name: Run tests
