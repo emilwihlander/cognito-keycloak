@@ -1,30 +1,18 @@
+# Docker Compose for development - runs the all-in-one container
+# For production, use: docker run -p 4566:4566 cognito-keycloak
 services:
-  keycloak:
-    image: quay.io/keycloak/keycloak:26.0
-    command: start-dev --import-realm
+  cognito-keycloak:
+    build: .
+    ports:
+      - "4566:4566"    # Cognito API
+      - "8080:8080"    # Keycloak UI (optional)
     environment:
       KEYCLOAK_ADMIN: admin
       KEYCLOAK_ADMIN_PASSWORD: admin
-    volumes:
-      - ./keycloak:/opt/keycloak/data/import:ro
-    ports:
-      - "8080:8080"
+      USER_POOL_ID: local_pool
     healthcheck:
-      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080"]
+      test: ["CMD", "curl", "-sf", "http://localhost:4566/health"]
       interval: 10s
       timeout: 5s
       retries: 20
-      start_period: 30s
-
-  cognito:
-    build: .
-    environment:
-      KEYCLOAK_URL: http://keycloak:8080
-      KEYCLOAK_REALM: cognito
-      PORT: "8081"
-      USER_POOL_ID: local_pool
-    ports:
-      - "8081:8081"
-    depends_on:
-      keycloak:
-        condition: service_healthy
+      start_period: 60s

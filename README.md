@@ -10,52 +10,62 @@ without needing an actual AWS account. It translates Cognito API calls to
 Keycloak's Admin REST API, while OAuth 2.0/OIDC endpoints are proxied directly
 to Keycloak.
 
+**Key feature:** Distributed as a single Docker image containing both Keycloak
+and the Cognito API wrapper — no docker-compose or multiple containers needed.
+
 ## Quick Start
 
-### Using Docker Compose (recommended)
-
 ```bash
-# Start both Keycloak and the Cognito wrapper
-docker compose up
+# Run the all-in-one container
+docker run -p 4566:4566 -p 8080:8080 cognito-keycloak
 
-# Or with Podman
-podman compose up
+# Or build and run locally
+docker build -t cognito-keycloak .
+docker run -p 4566:4566 -p 8080:8080 cognito-keycloak
 ```
 
 This starts:
 
+- **Cognito API** on `http://localhost:4566`
 - **Keycloak** on `http://localhost:8080` (admin/admin)
-- **Cognito API** on `http://localhost:8081`
 
-### Local Development
+### Configuration
+
+Override defaults with environment variables:
+
+```bash
+docker run -p 4566:4566 -p 8080:8080 \
+  -e KEYCLOAK_ADMIN=myadmin \
+  -e KEYCLOAK_ADMIN_PASSWORD=mysecret \
+  -e USER_POOL_ID=my_pool \
+  cognito-keycloak
+```
+
+| Variable                  | Default      | Description              |
+| ------------------------- | ------------ | ------------------------ |
+| `PORT`                    | `4566`       | Port for the Cognito API |
+| `KEYCLOAK_ADMIN`          | `admin`      | Keycloak admin username  |
+| `KEYCLOAK_ADMIN_PASSWORD` | `admin`      | Keycloak admin password  |
+| `USER_POOL_ID`            | `local_pool` | Hardcoded user pool ID   |
+
+## Local Development
+
+For development on this project itself:
 
 ```bash
 # Install dependencies
 bun install
 
-# Start Keycloak separately with realm import
-docker run -p 8080:8080 \
+# Start Keycloak (required for the wrapper to function)
+docker run -d --name keycloak -p 8080:8080 \
   -e KEYCLOAK_ADMIN=admin \
   -e KEYCLOAK_ADMIN_PASSWORD=admin \
   -v $(pwd)/keycloak:/opt/keycloak/data/import \
   quay.io/keycloak/keycloak:26.0 start-dev --import-realm
 
-# Start the wrapper
+# Start the wrapper in development mode
 bun run dev
 ```
-
-## Configuration
-
-Environment variables:
-
-| Variable                  | Default                 | Description              |
-| ------------------------- | ----------------------- | ------------------------ |
-| `PORT`                    | `3000`                  | Port for the Cognito API |
-| `KEYCLOAK_URL`            | `http://localhost:8080` | Keycloak base URL        |
-| `KEYCLOAK_REALM`          | `cognito`               | Keycloak realm to use    |
-| `KEYCLOAK_ADMIN`          | `admin`                 | Keycloak admin username  |
-| `KEYCLOAK_ADMIN_PASSWORD` | `admin`                 | Keycloak admin password  |
-| `USER_POOL_ID`            | `local_pool`            | Hardcoded user pool ID   |
 
 ## Endpoints
 
@@ -65,7 +75,7 @@ All Cognito actions are sent as `POST` requests to `/` with the `X-Amz-Target`
 header:
 
 ```bash
-curl -X POST http://localhost:3000/ \
+curl -X POST http://localhost:4566/ \
   -H "Content-Type: application/x-amz-json-1.1" \
   -H "X-Amz-Target: AWSCognitoIdentityProviderService.ListUsers" \
   -d '{"UserPoolId": "local_pool"}'
@@ -108,7 +118,7 @@ Configure the AWS SDK to use this local endpoint:
 import { CognitoIdentityProviderClient } from "@aws-sdk/client-cognito-identity-provider";
 
 const client = new CognitoIdentityProviderClient({
-  endpoint: "http://localhost:8081",
+  endpoint: "http://localhost:4566",
   region: "us-east-1",
   credentials: {
     accessKeyId: "local",
@@ -121,7 +131,7 @@ const client = new CognitoIdentityProviderClient({
 
 ```bash
 aws cognito-idp list-users \
-  --endpoint-url http://localhost:8081 \
+  --endpoint-url http://localhost:4566 \
   --user-pool-id local_pool
 ```
 
@@ -135,15 +145,22 @@ Access the Keycloak admin console at `http://localhost:8080` with:
 ## Architecture
 
 ```
-┌──────────────────┐         ┌──────────────────┐
-│   Hono App       │         │    Keycloak      │
-│   (Port 3000)    │────────▶│   (Port 8080)    │
-│                  │         │                  │
-│ • Cognito API    │         │ • Admin REST API │
-│ • OAuth Proxy    │         │ • OIDC Endpoints │
-└──────────────────┘         └──────────────────┘
-     Your App                   Docker Container
+┌────────────────────────────────────────────────────────────────────┐
+│                     Single Docker Container                        │
+│  ┌──────────────────┐         ┌──────────────────┐                │
+│  │   Cognito API    │         │    Keycloak      │                │
+│  │   (Port 4566)    │────────▶│   (Port 8080)    │                │
+│  │                  │         │                  │                │
+│  │ • Cognito IDP    │         │ • Admin REST API │                │
+│  │ • OAuth Proxy    │         │ • OIDC Endpoints │                │
+│  └──────────────────┘         └──────────────────┘                │
+└────────────────────────────────────────────────────────────────────┘
+                              Your App
 ```
+
+The container uses Bun's single-file executable feature to bundle the wrapper
+into a standalone binary with no external dependencies, which is then embedded
+alongside Keycloak in a single image.
 
 ## Testing
 
@@ -151,11 +168,21 @@ Tests use the official AWS SDK against the Cognito API. Keycloak must be
 running:
 
 ```bash
-# Start Keycloak
-docker compose up keycloak
+# Option 1: Run the all-in-one container (with Keycloak on port 8080)
+docker run -d --name cognito-test -p 8080:8080 cognito-keycloak
 
-# Run all tests
+# Option 2: Run just Keycloak for development
+docker run -d --name keycloak -p 8080:8080 \
+  -e KEYCLOAK_ADMIN=admin \
+  -e KEYCLOAK_ADMIN_PASSWORD=admin \
+  -v $(pwd)/keycloak:/opt/keycloak/data/import \
+  quay.io/keycloak/keycloak:26.0 start-dev --import-realm
+
+# Run all tests (with Keycloak on default port 8080)
 bun test
+
+# If Keycloak is running on a different port, set KEYCLOAK_URL:
+KEYCLOAK_URL=http://localhost:8180 KEYCLOAK_ENDPOINT=http://localhost:8180 bun test
 
 # Watch mode
 bun test --watch
@@ -170,7 +197,17 @@ For diff tests against real AWS, configure credentials via AWS CLI
 (`aws sso login`) and set `REAL_USER_POOL_ID` in `.env`:
 
 ```
-REAL_USER_POOL_ID=
+REAL_USER_POOL_ID=us-east-1_xxxxxxxx
+```
+
+## Building the Docker Image
+
+```bash
+# Build the image
+docker build -t cognito-keycloak .
+
+# Run the container
+docker run -p 4566:4566 -p 8080:8080 cognito-keycloak
 ```
 
 ## License
