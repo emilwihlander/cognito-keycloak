@@ -106,6 +106,12 @@ curl -X POST http://localhost:4566/ \
 - `AdminDisableUser` - Disable a user
 - `ListUsers` - List all users
 
+### Group Management
+
+- `AdminListGroupsForUser` - List groups for a user
+- `AdminAddUserToGroup` - Add a user to a group
+- `AdminRemoveUserFromGroup` - Remove a user from a group
+
 ### User Pool
 
 - `DescribeUserPool` - Get user pool configuration
