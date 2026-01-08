@@ -1,4 +1,5 @@
 import type { Context } from "hono";
+import { groupHandlers } from "./groups.js";
 import { describeUserPool } from "./user-pool.js";
 import { userHandlers } from "./users.js";
 
@@ -29,6 +30,10 @@ const actionHandlers: Record<string, ActionHandler> = {
 	AdminEnableUser: userHandlers.adminEnableUser,
 	AdminDisableUser: userHandlers.adminDisableUser,
 	ListUsers: userHandlers.listUsers,
+	// Group management actions
+	AdminListGroupsForUser: groupHandlers.adminListGroupsForUser,
+	AdminAddUserToGroup: groupHandlers.adminAddUserToGroup,
+	AdminRemoveUserFromGroup: groupHandlers.adminRemoveUserFromGroup,
 	// User pool actions
 	DescribeUserPool: describeUserPool,
 };

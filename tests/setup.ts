@@ -1,10 +1,12 @@
 import { CognitoIdentityProviderClient } from "@aws-sdk/client-cognito-identity-provider";
 import type { ServerType } from "@hono/node-server";
 import { serve } from "@hono/node-server";
+import KcAdminClient from "@keycloak/keycloak-admin-client";
 import app from "../src/app.js";
 
 const COGNITO_URL = "http://localhost:9000";
 const KEYCLOAK_URL = process.env.KEYCLOAK_URL || "http://localhost:8080";
+const KEYCLOAK_REALM = process.env.KEYCLOAK_REALM || "cognito";
 
 export const USER_POOL_ID = process.env.USER_POOL_ID || "local_pool";
 
@@ -77,4 +79,28 @@ export function getClient(): CognitoIdentityProviderClient {
 		throw new Error("Container not started. Call setupContainer() first.");
 	}
 	return cognitoClient;
+}
+
+/**
+ * Get a Keycloak admin client for test setup (e.g., creating groups)
+ */
+export async function getKeycloakAdminClient(): Promise<KcAdminClient> {
+	const kcAdmin = new KcAdminClient({
+		baseUrl: KEYCLOAK_URL,
+		realmName: KEYCLOAK_REALM,
+	});
+
+	// Authenticate against master realm
+	kcAdmin.setConfig({ realmName: "master" });
+	await kcAdmin.auth({
+		grantType: "password",
+		clientId: "admin-cli",
+		username: process.env.KC_BOOTSTRAP_ADMIN_USERNAME || "admin",
+		password: process.env.KC_BOOTSTRAP_ADMIN_PASSWORD || "admin",
+	});
+
+	// Switch back to target realm
+	kcAdmin.setConfig({ realmName: KEYCLOAK_REALM });
+
+	return kcAdmin;
 }
