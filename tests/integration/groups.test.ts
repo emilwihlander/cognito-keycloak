@@ -6,6 +6,12 @@ import {
 	AdminListGroupsForUserCommand,
 	AdminRemoveUserFromGroupCommand,
 	type CognitoIdentityProviderClient,
+	CreateGroupCommand,
+	DeleteGroupCommand,
+	GetGroupCommand,
+	ListGroupsCommand,
+	ListUsersInGroupCommand,
+	UpdateGroupCommand,
 } from "@aws-sdk/client-cognito-identity-provider";
 import type KcAdminClient from "@keycloak/keycloak-admin-client";
 import {
@@ -56,9 +62,28 @@ describe("Cognito Group Management", () => {
 	});
 
 	/**
-	 * Helper to create a Keycloak group for testing
+	 * Helper to create a group via Cognito API for testing
 	 */
-	async function createTestGroup(groupName: string): Promise<string> {
+	async function createTestGroup(
+		groupName: string,
+		options?: { description?: string; precedence?: number; roleArn?: string },
+	): Promise<void> {
+		await client.send(
+			new CreateGroupCommand({
+				UserPoolId: USER_POOL_ID,
+				GroupName: groupName,
+				Description: options?.description,
+				Precedence: options?.precedence,
+				RoleArn: options?.roleArn,
+			}),
+		);
+		createdGroups.push(groupName);
+	}
+
+	/**
+	 * Helper to create a Keycloak group directly for testing edge cases
+	 */
+	async function createKeycloakGroup(groupName: string): Promise<string> {
 		const result = await kcAdmin.groups.create({ name: groupName });
 		createdGroups.push(groupName);
 		return result.id;
@@ -77,6 +102,299 @@ describe("Cognito Group Management", () => {
 		);
 		createdUsers.push(username);
 	}
+
+	describe("CreateGroup", () => {
+		it("should create a basic group", async () => {
+			const groupName = `testgroup-create-${Date.now()}`;
+
+			const response = await client.send(
+				new CreateGroupCommand({
+					UserPoolId: USER_POOL_ID,
+					GroupName: groupName,
+				}),
+			);
+			createdGroups.push(groupName);
+
+			expect(response.Group).toBeDefined();
+			expect(response.Group?.GroupName).toBe(groupName);
+		});
+
+		it("should create a group with all attributes", async () => {
+			const groupName = `testgroup-create-full-${Date.now()}`;
+
+			const response = await client.send(
+				new CreateGroupCommand({
+					UserPoolId: USER_POOL_ID,
+					GroupName: groupName,
+					Description: "Test description",
+					Precedence: 10,
+					RoleArn: "arn:aws:iam::123456789:role/TestRole",
+				}),
+			);
+			createdGroups.push(groupName);
+
+			expect(response.Group).toBeDefined();
+			expect(response.Group?.GroupName).toBe(groupName);
+			expect(response.Group?.Description).toBe("Test description");
+			expect(response.Group?.Precedence).toBe(10);
+			expect(response.Group?.RoleArn).toBe(
+				"arn:aws:iam::123456789:role/TestRole",
+			);
+		});
+
+		it("should throw for duplicate group name", async () => {
+			const groupName = `testgroup-create-dup-${Date.now()}`;
+			await createTestGroup(groupName);
+
+			expect(
+				client.send(
+					new CreateGroupCommand({
+						UserPoolId: USER_POOL_ID,
+						GroupName: groupName,
+					}),
+				),
+			).rejects.toThrow();
+		});
+	});
+
+	describe("GetGroup", () => {
+		it("should get an existing group", async () => {
+			const groupName = `testgroup-get-${Date.now()}`;
+			await createTestGroup(groupName, {
+				description: "Test group",
+				precedence: 5,
+			});
+
+			const response = await client.send(
+				new GetGroupCommand({
+					UserPoolId: USER_POOL_ID,
+					GroupName: groupName,
+				}),
+			);
+
+			expect(response.Group).toBeDefined();
+			expect(response.Group?.GroupName).toBe(groupName);
+			expect(response.Group?.Description).toBe("Test group");
+			expect(response.Group?.Precedence).toBe(5);
+		});
+
+		it("should throw for non-existent group", async () => {
+			expect(
+				client.send(
+					new GetGroupCommand({
+						UserPoolId: USER_POOL_ID,
+						GroupName: "nonexistent-group-12345",
+					}),
+				),
+			).rejects.toThrow();
+		});
+	});
+
+	describe("DeleteGroup", () => {
+		it("should delete an existing group", async () => {
+			const groupName = `testgroup-delete-${Date.now()}`;
+			await createKeycloakGroup(groupName);
+
+			// Delete the group
+			await client.send(
+				new DeleteGroupCommand({
+					UserPoolId: USER_POOL_ID,
+					GroupName: groupName,
+				}),
+			);
+
+			// Verify it's gone
+			expect(
+				client.send(
+					new GetGroupCommand({
+						UserPoolId: USER_POOL_ID,
+						GroupName: groupName,
+					}),
+				),
+			).rejects.toThrow();
+
+			// Remove from cleanup list since it's already deleted
+			const idx = createdGroups.indexOf(groupName);
+			if (idx > -1) createdGroups.splice(idx, 1);
+		});
+
+		it("should throw for non-existent group", async () => {
+			expect(
+				client.send(
+					new DeleteGroupCommand({
+						UserPoolId: USER_POOL_ID,
+						GroupName: "nonexistent-group-delete-12345",
+					}),
+				),
+			).rejects.toThrow();
+		});
+	});
+
+	describe("ListGroups", () => {
+		it("should list groups", async () => {
+			const groupName = `testgroup-list-all-${Date.now()}`;
+			await createTestGroup(groupName);
+
+			const response = await client.send(
+				new ListGroupsCommand({
+					UserPoolId: USER_POOL_ID,
+				}),
+			);
+
+			expect(response.Groups).toBeDefined();
+			expect(response.Groups?.length).toBeGreaterThanOrEqual(1);
+
+			const foundGroup = response.Groups?.find(
+				(g) => g.GroupName === groupName,
+			);
+			expect(foundGroup).toBeDefined();
+		});
+
+		it("should support pagination", async () => {
+			// Create multiple groups
+			const prefix = `testgroup-paginate-${Date.now()}`;
+			for (let i = 0; i < 3; i++) {
+				await createTestGroup(`${prefix}-${i}`);
+			}
+
+			// Request with limit
+			const response = await client.send(
+				new ListGroupsCommand({
+					UserPoolId: USER_POOL_ID,
+					Limit: 2,
+				}),
+			);
+
+			expect(response.Groups).toBeDefined();
+			expect(response.Groups?.length).toBeLessThanOrEqual(2);
+		});
+	});
+
+	describe("ListUsersInGroup", () => {
+		it("should return empty list for group with no users", async () => {
+			const groupName = `testgroup-listusers-empty-${Date.now()}`;
+			await createTestGroup(groupName);
+
+			const response = await client.send(
+				new ListUsersInGroupCommand({
+					UserPoolId: USER_POOL_ID,
+					GroupName: groupName,
+				}),
+			);
+
+			expect(response.Users).toBeDefined();
+			expect(response.Users).toEqual([]);
+		});
+
+		it("should return users in group", async () => {
+			const groupName = `testgroup-listusers-${Date.now()}`;
+			const username = `grouptest-listusers-${Date.now()}`;
+
+			await createTestGroup(groupName);
+			await createTestUser(username);
+
+			// Add user to group
+			await client.send(
+				new AdminAddUserToGroupCommand({
+					UserPoolId: USER_POOL_ID,
+					Username: username,
+					GroupName: groupName,
+				}),
+			);
+
+			const response = await client.send(
+				new ListUsersInGroupCommand({
+					UserPoolId: USER_POOL_ID,
+					GroupName: groupName,
+				}),
+			);
+
+			expect(response.Users).toBeDefined();
+			expect(response.Users?.length).toBe(1);
+			expect(response.Users?.[0].Username).toBe(username);
+		});
+
+		it("should throw for non-existent group", async () => {
+			await expect(
+				client.send(
+					new ListUsersInGroupCommand({
+						UserPoolId: USER_POOL_ID,
+						GroupName: "nonexistent-group-listusers-12345",
+					}),
+				),
+			).rejects.toThrow();
+		});
+	});
+
+	describe("UpdateGroup", () => {
+		it("should update group description", async () => {
+			const groupName = `testgroup-update-${Date.now()}`;
+			await createTestGroup(groupName, { description: "Original" });
+
+			const response = await client.send(
+				new UpdateGroupCommand({
+					UserPoolId: USER_POOL_ID,
+					GroupName: groupName,
+					Description: "Updated description",
+				}),
+			);
+
+			expect(response.Group?.Description).toBe("Updated description");
+
+			// Verify with GetGroup
+			const getResponse = await client.send(
+				new GetGroupCommand({
+					UserPoolId: USER_POOL_ID,
+					GroupName: groupName,
+				}),
+			);
+			expect(getResponse.Group?.Description).toBe("Updated description");
+		});
+
+		it("should update group precedence", async () => {
+			const groupName = `testgroup-update-prec-${Date.now()}`;
+			await createTestGroup(groupName, { precedence: 5 });
+
+			const response = await client.send(
+				new UpdateGroupCommand({
+					UserPoolId: USER_POOL_ID,
+					GroupName: groupName,
+					Precedence: 20,
+				}),
+			);
+
+			expect(response.Group?.Precedence).toBe(20);
+		});
+
+		it("should update role ARN", async () => {
+			const groupName = `testgroup-update-role-${Date.now()}`;
+			await createTestGroup(groupName);
+
+			const response = await client.send(
+				new UpdateGroupCommand({
+					UserPoolId: USER_POOL_ID,
+					GroupName: groupName,
+					RoleArn: "arn:aws:iam::123456789:role/NewRole",
+				}),
+			);
+
+			expect(response.Group?.RoleArn).toBe(
+				"arn:aws:iam::123456789:role/NewRole",
+			);
+		});
+
+		it("should throw for non-existent group", async () => {
+			await expect(
+				client.send(
+					new UpdateGroupCommand({
+						UserPoolId: USER_POOL_ID,
+						GroupName: "nonexistent-group-update-12345",
+						Description: "Test",
+					}),
+				),
+			).rejects.toThrow();
+		});
+	});
 
 	describe("AdminListGroupsForUser", () => {
 		it("should return empty list for user with no groups", async () => {

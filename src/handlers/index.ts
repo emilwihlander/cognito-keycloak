@@ -34,6 +34,12 @@ const actionHandlers: Record<string, ActionHandler> = {
 	AdminListGroupsForUser: groupHandlers.adminListGroupsForUser,
 	AdminAddUserToGroup: groupHandlers.adminAddUserToGroup,
 	AdminRemoveUserFromGroup: groupHandlers.adminRemoveUserFromGroup,
+	CreateGroup: groupHandlers.createGroup,
+	DeleteGroup: groupHandlers.deleteGroup,
+	GetGroup: groupHandlers.getGroup,
+	ListGroups: groupHandlers.listGroups,
+	ListUsersInGroup: groupHandlers.listUsersInGroup,
+	UpdateGroup: groupHandlers.updateGroup,
 	// User pool actions
 	DescribeUserPool: describeUserPool,
 };

@@ -1,15 +1,24 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 import { isDeepStrictEqual } from "node:util";
 import {
+	AdminAddUserToGroupCommand,
 	AdminCreateUserCommand,
 	AdminDeleteUserCommand,
 	AdminDisableUserCommand,
 	AdminEnableUserCommand,
 	AdminGetUserCommand,
+	AdminListGroupsForUserCommand,
+	AdminRemoveUserFromGroupCommand,
 	AdminSetUserPasswordCommand,
 	AdminUpdateUserAttributesCommand,
 	CognitoIdentityProviderClient,
+	CreateGroupCommand,
+	DeleteGroupCommand,
+	GetGroupCommand,
+	ListGroupsCommand,
 	ListUsersCommand,
+	ListUsersInGroupCommand,
+	UpdateGroupCommand,
 } from "@aws-sdk/client-cognito-identity-provider";
 import { setupEnvironment, USER_POOL_ID } from "../setup.js";
 
@@ -123,6 +132,18 @@ function normalizeUser(user: unknown): unknown {
 	};
 }
 
+function normalizeGroup(group: unknown): unknown {
+	if (!group || typeof group !== "object") return group;
+	const g = group as Record<string, unknown>;
+
+	return {
+		GroupName: g.GroupName,
+		Description: g.Description,
+		Precedence: g.Precedence,
+		RoleArn: g.RoleArn,
+	};
+}
+
 function normalizeOkData(data: unknown): unknown {
 	if (!data || typeof data !== "object") return data;
 	const obj = data as Record<string, unknown>;
@@ -147,6 +168,22 @@ function normalizeOkData(data: unknown): unknown {
 			Username: obj.Username,
 			UserAttributes: normalizeAttributes(obj.UserAttributes),
 		};
+	}
+
+	// Group responses
+	if ("Group" in obj) {
+		return { Group: normalizeGroup(obj.Group) };
+	}
+
+	if ("Groups" in obj && Array.isArray(obj.Groups)) {
+		const groups = (obj.Groups as unknown[]).map(normalizeGroup) as Record<
+			string,
+			unknown
+		>[];
+		groups.sort((a, b) =>
+			String(a?.GroupName ?? "").localeCompare(String(b?.GroupName ?? "")),
+		);
+		return { Groups: groups };
 	}
 
 	// e.g. AdminDeleteUser/AdminDisableUser/AdminEnableUser/AdminSetUserPassword responses
@@ -196,6 +233,23 @@ async function safeDeleteUser(
 	}
 }
 
+async function safeDeleteGroup(
+	client: CognitoIdentityProviderClient,
+	userPoolId: string,
+	groupName: string,
+): Promise<void> {
+	try {
+		await client.send(
+			new DeleteGroupCommand({
+				UserPoolId: userPoolId,
+				GroupName: groupName,
+			}),
+		);
+	} catch {
+		// ignore cleanup errors
+	}
+}
+
 /**
  * Delete all test users matching common test patterns from a user pool.
  */
@@ -234,6 +288,44 @@ async function cleanupTestUsers(
 	}
 }
 
+/**
+ * Delete all test groups matching common test patterns from a user pool.
+ */
+async function cleanupTestGroups(
+	client: CognitoIdentityProviderClient,
+	userPoolId: string,
+): Promise<void> {
+	const testGroupPatterns = [/^testgroup-/, /^conformance-/];
+
+	try {
+		// List all groups (up to 60, should be enough for test cleanup)
+		const result = await client.send(
+			new ListGroupsCommand({ UserPoolId: userPoolId, Limit: 60 }),
+		);
+
+		const groups = result.Groups ?? [];
+		const testGroups = groups.filter((g) =>
+			testGroupPatterns.some((pattern) => pattern.test(g.GroupName ?? "")),
+		);
+
+		// Delete all matching test groups
+		await Promise.all(
+			testGroups.map((g) => safeDeleteGroup(client, userPoolId, g.GroupName!)),
+		);
+
+		if (testGroups.length > 0) {
+			console.log(
+				`Cleaned up ${testGroups.length} test group(s) from pool ${userPoolId}`,
+			);
+		}
+	} catch (err) {
+		console.warn(
+			`Warning: Failed to cleanup test groups from ${userPoolId}:`,
+			err,
+		);
+	}
+}
+
 const conformanceDescribe = process.env.REAL_USER_POOL_ID
 	? describe
 	: describe.skip;
@@ -254,10 +346,12 @@ conformanceDescribe("Conformance tests (emulator vs real AWS Cognito)", () => {
 
 		await assertAwsCredentialsResolvable(realClient);
 
-		// Clean up any leftover test users from previous runs
+		// Clean up any leftover test users and groups from previous runs
 		await Promise.all([
 			cleanupTestUsers(localClient, USER_POOL_ID),
 			cleanupTestUsers(realClient, REAL_USER_POOL_ID),
+			cleanupTestGroups(localClient, USER_POOL_ID),
+			cleanupTestGroups(realClient, REAL_USER_POOL_ID),
 		]);
 	});
 
@@ -557,6 +651,310 @@ conformanceDescribe("Conformance tests (emulator vs real AWS Cognito)", () => {
 		} finally {
 			// Best-effort cleanup on both sides (even if tests fail mid-way)
 			await Promise.all([
+				safeDeleteUser(localClient, USER_POOL_ID, username),
+				safeDeleteUser(realClient!, REAL_USER_POOL_ID, username),
+			]);
+		}
+
+		if (diffs.length > 0) {
+			throw new Error(
+				`Conformance failure(s):\n${JSON.stringify(diffs, null, 2)}`,
+			);
+		}
+	});
+
+	it("Group lifecycle: create → get → update → add user → list users → remove user → list groups for user → delete", async () => {
+		const diffs: Array<{
+			step: string;
+			local: Normalized;
+			real: Normalized;
+		}> = [];
+
+		const groupName = `conformance-group-${Date.now()}`;
+		const username = `conformance-groupuser-${Date.now()}`;
+		const email = `${username}@hejare.se`;
+
+		// First, create a test user on both sides
+		const createUserLocal = new AdminCreateUserCommand({
+			UserPoolId: USER_POOL_ID,
+			Username: username,
+			MessageAction: "SUPPRESS",
+			TemporaryPassword: "TempPass123!",
+			UserAttributes: [
+				{ Name: "email", Value: email },
+				{ Name: "email_verified", Value: "true" },
+			],
+		});
+		const createUserReal = new AdminCreateUserCommand({
+			UserPoolId: REAL_USER_POOL_ID,
+			Username: username,
+			MessageAction: "SUPPRESS",
+			TemporaryPassword: "TempPass123!",
+			UserAttributes: [
+				{ Name: "email", Value: email },
+				{ Name: "email_verified", Value: "true" },
+			],
+		});
+
+		const [createUserL, createUserR] = await Promise.all([
+			capture(localClient, createUserLocal),
+			capture(realClient!, createUserReal),
+		]);
+
+		if (!createUserL.ok || !createUserR.ok) {
+			throw new Error("Failed to create test user for group lifecycle test");
+		}
+
+		try {
+			// Create group
+			const [createL, createR] = await Promise.all([
+				capture(
+					localClient,
+					new CreateGroupCommand({
+						UserPoolId: USER_POOL_ID,
+						GroupName: groupName,
+						Description: "Conformance test group",
+						Precedence: 10,
+					}),
+				),
+				capture(
+					realClient!,
+					new CreateGroupCommand({
+						UserPoolId: REAL_USER_POOL_ID,
+						GroupName: groupName,
+						Description: "Conformance test group",
+						Precedence: 10,
+					}),
+				),
+			]);
+			compareOrCollect("CreateGroup", createL, createR, diffs);
+
+			if (!createL.ok || !createR.ok) {
+				if (diffs.length > 0) {
+					throw new Error(
+						`Conformance failure(s):\n${JSON.stringify(diffs, null, 2)}`,
+					);
+				}
+				throw new Error("CreateGroup failed on at least one side.");
+			}
+
+			// Get group
+			const [getL, getR] = await Promise.all([
+				capture(
+					localClient,
+					new GetGroupCommand({
+						UserPoolId: USER_POOL_ID,
+						GroupName: groupName,
+					}),
+				),
+				capture(
+					realClient!,
+					new GetGroupCommand({
+						UserPoolId: REAL_USER_POOL_ID,
+						GroupName: groupName,
+					}),
+				),
+			]);
+			compareOrCollect("GetGroup (after create)", getL, getR, diffs);
+
+			// Update group
+			const [updL, updR] = await Promise.all([
+				capture(
+					localClient,
+					new UpdateGroupCommand({
+						UserPoolId: USER_POOL_ID,
+						GroupName: groupName,
+						Description: "Updated description",
+						Precedence: 20,
+					}),
+				),
+				capture(
+					realClient!,
+					new UpdateGroupCommand({
+						UserPoolId: REAL_USER_POOL_ID,
+						GroupName: groupName,
+						Description: "Updated description",
+						Precedence: 20,
+					}),
+				),
+			]);
+			compareOrCollect("UpdateGroup", updL, updR, diffs);
+
+			// Get group after update
+			const [getUpdL, getUpdR] = await Promise.all([
+				capture(
+					localClient,
+					new GetGroupCommand({
+						UserPoolId: USER_POOL_ID,
+						GroupName: groupName,
+					}),
+				),
+				capture(
+					realClient!,
+					new GetGroupCommand({
+						UserPoolId: REAL_USER_POOL_ID,
+						GroupName: groupName,
+					}),
+				),
+			]);
+			compareOrCollect("GetGroup (after update)", getUpdL, getUpdR, diffs);
+
+			// Add user to group
+			const [addL, addR] = await Promise.all([
+				capture(
+					localClient,
+					new AdminAddUserToGroupCommand({
+						UserPoolId: USER_POOL_ID,
+						Username: username,
+						GroupName: groupName,
+					}),
+				),
+				capture(
+					realClient!,
+					new AdminAddUserToGroupCommand({
+						UserPoolId: REAL_USER_POOL_ID,
+						Username: username,
+						GroupName: groupName,
+					}),
+				),
+			]);
+			compareOrCollect("AdminAddUserToGroup", addL, addR, diffs);
+
+			// List users in group
+			const [listUsersL, listUsersR] = await Promise.all([
+				capture(
+					localClient,
+					new ListUsersInGroupCommand({
+						UserPoolId: USER_POOL_ID,
+						GroupName: groupName,
+					}),
+				),
+				capture(
+					realClient!,
+					new ListUsersInGroupCommand({
+						UserPoolId: REAL_USER_POOL_ID,
+						GroupName: groupName,
+					}),
+				),
+			]);
+			compareOrCollect("ListUsersInGroup", listUsersL, listUsersR, diffs);
+
+			// List groups for user
+			const [listGroupsL, listGroupsR] = await Promise.all([
+				capture(
+					localClient,
+					new AdminListGroupsForUserCommand({
+						UserPoolId: USER_POOL_ID,
+						Username: username,
+					}),
+				),
+				capture(
+					realClient!,
+					new AdminListGroupsForUserCommand({
+						UserPoolId: REAL_USER_POOL_ID,
+						Username: username,
+					}),
+				),
+			]);
+			compareOrCollect(
+				"AdminListGroupsForUser",
+				listGroupsL,
+				listGroupsR,
+				diffs,
+			);
+
+			// Remove user from group
+			const [removeL, removeR] = await Promise.all([
+				capture(
+					localClient,
+					new AdminRemoveUserFromGroupCommand({
+						UserPoolId: USER_POOL_ID,
+						Username: username,
+						GroupName: groupName,
+					}),
+				),
+				capture(
+					realClient!,
+					new AdminRemoveUserFromGroupCommand({
+						UserPoolId: REAL_USER_POOL_ID,
+						Username: username,
+						GroupName: groupName,
+					}),
+				),
+			]);
+			compareOrCollect("AdminRemoveUserFromGroup", removeL, removeR, diffs);
+
+			// List groups for user (should be empty now)
+			const [listGroupsAfterL, listGroupsAfterR] = await Promise.all([
+				capture(
+					localClient,
+					new AdminListGroupsForUserCommand({
+						UserPoolId: USER_POOL_ID,
+						Username: username,
+					}),
+				),
+				capture(
+					realClient!,
+					new AdminListGroupsForUserCommand({
+						UserPoolId: REAL_USER_POOL_ID,
+						Username: username,
+					}),
+				),
+			]);
+			compareOrCollect(
+				"AdminListGroupsForUser (after remove)",
+				listGroupsAfterL,
+				listGroupsAfterR,
+				diffs,
+			);
+
+			// Delete group
+			const [delL, delR] = await Promise.all([
+				capture(
+					localClient,
+					new DeleteGroupCommand({
+						UserPoolId: USER_POOL_ID,
+						GroupName: groupName,
+					}),
+				),
+				capture(
+					realClient!,
+					new DeleteGroupCommand({
+						UserPoolId: REAL_USER_POOL_ID,
+						GroupName: groupName,
+					}),
+				),
+			]);
+			compareOrCollect("DeleteGroup", delL, delR, diffs);
+
+			// Get group after delete (should fail)
+			const [getAfterDelL, getAfterDelR] = await Promise.all([
+				capture(
+					localClient,
+					new GetGroupCommand({
+						UserPoolId: USER_POOL_ID,
+						GroupName: groupName,
+					}),
+				),
+				capture(
+					realClient!,
+					new GetGroupCommand({
+						UserPoolId: REAL_USER_POOL_ID,
+						GroupName: groupName,
+					}),
+				),
+			]);
+			compareOrCollect(
+				"GetGroup (after delete)",
+				getAfterDelL,
+				getAfterDelR,
+				diffs,
+			);
+		} finally {
+			// Best-effort cleanup on both sides
+			await Promise.all([
+				safeDeleteGroup(localClient, USER_POOL_ID, groupName),
+				safeDeleteGroup(realClient!, REAL_USER_POOL_ID, groupName),
 				safeDeleteUser(localClient, USER_POOL_ID, username),
 				safeDeleteUser(realClient!, REAL_USER_POOL_ID, username),
 			]);
