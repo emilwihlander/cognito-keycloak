@@ -146,7 +146,7 @@ describe("Cognito Group Management", () => {
 			const groupName = `testgroup-create-dup-${Date.now()}`;
 			await createTestGroup(groupName);
 
-			expect(
+			await expect(
 				client.send(
 					new CreateGroupCommand({
 						UserPoolId: USER_POOL_ID,
@@ -179,7 +179,7 @@ describe("Cognito Group Management", () => {
 		});
 
 		it("should throw for non-existent group", async () => {
-			expect(
+			await expect(
 				client.send(
 					new GetGroupCommand({
 						UserPoolId: USER_POOL_ID,
@@ -204,7 +204,7 @@ describe("Cognito Group Management", () => {
 			);
 
 			// Verify it's gone
-			expect(
+			await expect(
 				client.send(
 					new GetGroupCommand({
 						UserPoolId: USER_POOL_ID,
@@ -219,7 +219,7 @@ describe("Cognito Group Management", () => {
 		});
 
 		it("should throw for non-existent group", async () => {
-			expect(
+			await expect(
 				client.send(
 					new DeleteGroupCommand({
 						UserPoolId: USER_POOL_ID,

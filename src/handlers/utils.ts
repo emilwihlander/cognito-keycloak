@@ -202,7 +202,7 @@ export function keycloakToCognitoUser(user: UserRepresentation): UserType {
 		: createdTimestamp;
 
 	return {
-		Username: user.username,
+		Username: user.username ?? user.id,
 		Attributes: keycloakToCognitoAttributes(user),
 		UserCreateDate: createdTimestamp,
 		UserLastModifiedDate: lastModifiedDate,
