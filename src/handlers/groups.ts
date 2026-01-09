@@ -17,155 +17,16 @@ import type {
 	UpdateGroupResponse,
 	UserType,
 } from "@aws-sdk/client-cognito-identity-provider";
-import type GroupRepresentation from "@keycloak/keycloak-admin-client/lib/defs/groupRepresentation.js";
-import type UserRepresentation from "@keycloak/keycloak-admin-client/lib/defs/userRepresentation.js";
 import { authenticate, keycloakClient } from "../keycloak/client.js";
 import { CognitoException } from "./index.js";
-
-// ============ Utility Functions ============
-
-/**
- * Validate that username is provided, throw CognitoException if not
- */
-function requireUsername(
-	username: string | undefined,
-): asserts username is string {
-	if (!username) {
-		throw new CognitoException(
-			"InvalidParameterException",
-			"1 validation error detected: Value at 'username' failed to satisfy constraint: Member must not be null",
-			400,
-		);
-	}
-}
-
-/**
- * Validate that group name is provided, throw CognitoException if not
- */
-function requireGroupName(
-	groupName: string | undefined,
-): asserts groupName is string {
-	if (!groupName) {
-		throw new CognitoException(
-			"InvalidParameterException",
-			"1 validation error detected: Value at 'groupName' failed to satisfy constraint: Member must not be null",
-			400,
-		);
-	}
-}
-
-/**
- * Find a user by username in Keycloak, throw UserNotFoundException if not found
- */
-async function getRequiredUser(
-	username: string,
-): Promise<{ id: string; username: string }> {
-	const users = await keycloakClient.users.find({ exact: true, username });
-	const user = users.at(0);
-	if (!user || !user.id) {
-		throw new CognitoException(
-			"UserNotFoundException",
-			"User does not exist.",
-			400,
-		);
-	}
-	return { id: user.id, username: user.username! };
-}
-
-/**
- * Find a group by name in Keycloak, throw ResourceNotFoundException if not found
- */
-async function getRequiredGroup(
-	groupName: string,
-): Promise<{ id: string; name: string }> {
-	const groups = await keycloakClient.groups.find({ search: groupName });
-	// Find exact match (search is partial match)
-	const group = groups.find((g) => g.name === groupName);
-	if (!group || !group.id) {
-		throw new CognitoException(
-			"ResourceNotFoundException",
-			"Group not found.",
-			400,
-		);
-	}
-	return { id: group.id, name: group.name! };
-}
-
-/**
- * Convert Keycloak group to Cognito GroupType
- */
-function keycloakToCognitoGroup(group: GroupRepresentation): GroupType {
-	const attributes = group.attributes || {};
-	return {
-		GroupName: group.name,
-		Description: attributes.description?.[0],
-		Precedence: attributes.precedence?.[0]
-			? parseInt(attributes.precedence[0], 10)
-			: undefined,
-		RoleArn: attributes.roleArn?.[0],
-		// Keycloak groups don't have creation dates exposed in the same way
-		CreationDate: new Date(),
-		LastModifiedDate: new Date(),
-	};
-}
-
-/**
- * Convert Keycloak user to Cognito UserType (for ListUsersInGroup)
- */
-function keycloakToCognitoUser(user: UserRepresentation): UserType {
-	type UserStatusType =
-		| "ARCHIVED"
-		| "COMPROMISED"
-		| "CONFIRMED"
-		| "EXTERNAL_PROVIDER"
-		| "FORCE_CHANGE_PASSWORD"
-		| "RESET_REQUIRED"
-		| "UNCONFIRMED"
-		| "UNKNOWN";
-
-	let userStatus: UserStatusType;
-	if (!user.enabled) {
-		userStatus = "ARCHIVED";
-	} else if (user.requiredActions?.includes("UPDATE_PASSWORD")) {
-		userStatus = "FORCE_CHANGE_PASSWORD";
-	} else {
-		userStatus = "CONFIRMED";
-	}
-
-	const createdTimestamp = user.createdTimestamp
-		? new Date(user.createdTimestamp)
-		: undefined;
-
-	// Build attributes
-	const attributes: { Name: string; Value: string }[] = [];
-	if (user.email) {
-		attributes.push({ Name: "email", Value: user.email });
-	}
-	if (user.emailVerified !== undefined) {
-		attributes.push({
-			Name: "email_verified",
-			Value: user.emailVerified.toString(),
-		});
-	}
-	if (user.firstName) {
-		attributes.push({ Name: "given_name", Value: user.firstName });
-	}
-	if (user.lastName) {
-		attributes.push({ Name: "family_name", Value: user.lastName });
-	}
-	if (user.id) {
-		attributes.push({ Name: "sub", Value: user.id });
-	}
-
-	return {
-		Username: user.username,
-		Attributes: attributes,
-		UserCreateDate: createdTimestamp,
-		UserLastModifiedDate: createdTimestamp,
-		Enabled: user.enabled,
-		UserStatus: userStatus,
-	};
-}
+import {
+	getRequiredGroup,
+	getRequiredUser,
+	keycloakToCognitoGroup,
+	keycloakToCognitoUser,
+	requireGroupName,
+	requireUsername,
+} from "./utils.js";
 
 // ============ Group Action Handlers ============
 
@@ -176,7 +37,7 @@ async function adminListGroupsForUser(
 	requireUsername(request.Username);
 
 	const user = await getRequiredUser(request.Username);
-	const groups = await keycloakClient.users.listGroups({ id: user.id });
+	const groups = await keycloakClient.users.listGroups({ id: user.id! });
 
 	// Handle pagination
 	const limit = request.Limit || 60;
@@ -220,8 +81,8 @@ async function adminAddUserToGroup(
 	const group = await getRequiredGroup(request.GroupName);
 
 	await keycloakClient.users.addToGroup({
-		id: user.id,
-		groupId: group.id,
+		id: user.id!,
+		groupId: group.id!,
 	});
 }
 
@@ -236,8 +97,8 @@ async function adminRemoveUserFromGroup(
 	const group = await getRequiredGroup(request.GroupName);
 
 	await keycloakClient.users.delFromGroup({
-		id: user.id,
-		groupId: group.id,
+		id: user.id!,
+		groupId: group.id!,
 	});
 }
 
@@ -263,7 +124,11 @@ async function createGroup(
 	}
 
 	// Build group attributes for Keycloak
-	const attributes: Record<string, string[]> = {};
+	const now = new Date().toISOString();
+	const attributes: Record<string, string[]> = {
+		creationDate: [now],
+		lastModifiedDate: [now],
+	};
 	if (request.Description) {
 		attributes.description = [request.Description];
 	}
@@ -292,7 +157,7 @@ async function deleteGroup(request: DeleteGroupRequest): Promise<void> {
 	requireGroupName(request.GroupName);
 
 	const group = await getRequiredGroup(request.GroupName);
-	await keycloakClient.groups.del({ id: group.id });
+	await keycloakClient.groups.del({ id: group.id! });
 }
 
 async function getGroup(request: GetGroupRequest): Promise<GetGroupResponse> {
@@ -363,7 +228,7 @@ async function listUsersInGroup(
 
 	// Get group members from Keycloak
 	const members = await keycloakClient.groups.listMembers({
-		id: group.id,
+		id: group.id!,
 		first: offset,
 		max: limit,
 	});
@@ -393,11 +258,14 @@ async function updateGroup(
 	const group = await getRequiredGroup(request.GroupName);
 
 	// Get existing group to preserve unchanged attributes
-	const existingGroup = await keycloakClient.groups.findOne({ id: group.id });
+	const existingGroup = await keycloakClient.groups.findOne({ id: group.id! });
 	const existingAttributes = existingGroup?.attributes || {};
 
 	// Build updated attributes
 	const attributes: Record<string, string[]> = { ...existingAttributes };
+
+	// Update lastModifiedDate
+	attributes.lastModifiedDate = [new Date().toISOString()];
 
 	if (request.Description !== undefined) {
 		if (request.Description) {
@@ -418,7 +286,7 @@ async function updateGroup(
 	}
 
 	await keycloakClient.groups.update(
-		{ id: group.id },
+		{ id: group.id! },
 		{
 			name: group.name,
 			attributes,
@@ -426,7 +294,7 @@ async function updateGroup(
 	);
 
 	// Fetch updated group
-	const updatedGroup = await keycloakClient.groups.findOne({ id: group.id });
+	const updatedGroup = await keycloakClient.groups.findOne({ id: group.id! });
 
 	return {
 		Group: updatedGroup ? keycloakToCognitoGroup(updatedGroup) : undefined,
