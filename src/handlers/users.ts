@@ -12,7 +12,6 @@ import type {
 	AdminSetUserPasswordResponse,
 	AdminUpdateUserAttributesRequest,
 	AdminUpdateUserAttributesResponse,
-	AttributeType,
 	ListUsersRequest,
 	ListUsersResponse,
 	UserType,
@@ -20,158 +19,14 @@ import type {
 import type UserRepresentation from "@keycloak/keycloak-admin-client/lib/defs/userRepresentation.js";
 import { authenticate, keycloakClient } from "../keycloak/client.js";
 import { CognitoException } from "./index.js";
-
-// ============ Utility Functions ============
-
-/**
- * Convert Cognito AttributeType[] to Keycloak attributes format
- * Cognito: [{ Name: "email", Value: "test@example.com" }]
- * Keycloak: { email: ["test@example.com"] }
- */
-function cognitoToKeycloakAttributes(
-	attributes?: AttributeType[],
-): Record<string, string[]> {
-	if (!attributes) return {};
-
-	const result: Record<string, string[]> = {};
-
-	for (const attr of attributes) {
-		if (attr.Name && attr.Value !== undefined) {
-			// Handle standard attributes that map directly
-			const name = attr.Name.replace(/^custom:/, "");
-			result[name] = [attr.Value];
-		}
-	}
-
-	return result;
-}
-
-/**
- * Convert Keycloak user to Cognito AttributeType[]
- */
-function keycloakToCognitoAttributes(
-	user: UserRepresentation,
-): AttributeType[] {
-	const attributes: AttributeType[] = [];
-
-	// Map standard fields
-	if (user.email) {
-		attributes.push({ Name: "email", Value: user.email });
-	}
-	if (user.emailVerified !== undefined) {
-		attributes.push({
-			Name: "email_verified",
-			Value: user.emailVerified.toString(),
-		});
-	}
-	if (user.firstName) {
-		attributes.push({ Name: "given_name", Value: user.firstName });
-	}
-	if (user.lastName) {
-		attributes.push({ Name: "family_name", Value: user.lastName });
-	}
-
-	// Add sub (user ID)
-	attributes.push({ Name: "sub", Value: user.id });
-
-	// Map custom attributes from Keycloak
-	if (user.attributes) {
-		for (const [key, values] of Object.entries(user.attributes)) {
-			if (values && values.length > 0) {
-				// Skip attributes we've already mapped
-				if (!["email", "firstName", "lastName"].includes(key)) {
-					attributes.push({ Name: `custom:${key}`, Value: values[0] });
-				}
-			}
-		}
-	}
-
-	return attributes;
-}
-
-/**
- * Convert Keycloak user to Cognito UserType
- * Note: Cognito API returns dates as epoch seconds (numbers)
- */
-function keycloakToCognitoUser(user: UserRepresentation): UserType {
-	// Cognito UserStatusType: ARCHIVED | COMPROMISED | CONFIRMED | EXTERNAL_PROVIDER | FORCE_CHANGE_PASSWORD | RESET_REQUIRED | UNCONFIRMED | UNKNOWN
-	type UserStatusType =
-		| "ARCHIVED"
-		| "COMPROMISED"
-		| "CONFIRMED"
-		| "EXTERNAL_PROVIDER"
-		| "FORCE_CHANGE_PASSWORD"
-		| "RESET_REQUIRED"
-		| "UNCONFIRMED"
-		| "UNKNOWN";
-
-	// Determine user status based on Keycloak state
-	// - If disabled → ARCHIVED
-	// - If has UPDATE_PASSWORD required action → FORCE_CHANGE_PASSWORD (temporary password)
-	// - Otherwise → CONFIRMED
-	let userStatus: UserStatusType;
-	if (!user.enabled) {
-		userStatus = "ARCHIVED";
-	} else if (user.requiredActions?.includes("UPDATE_PASSWORD")) {
-		userStatus = "FORCE_CHANGE_PASSWORD";
-	} else {
-		userStatus = "CONFIRMED";
-	}
-
-	const createdTimestamp = user.createdTimestamp
-		? new Date(user.createdTimestamp)
-		: undefined;
-
-	return {
-		Username: user.username,
-		Attributes: keycloakToCognitoAttributes(user),
-		UserCreateDate: createdTimestamp,
-		UserLastModifiedDate: createdTimestamp,
-		Enabled: user.enabled,
-		UserStatus: userStatus,
-	};
-}
-
-/**
- * Extract specific attribute value from Cognito attributes
- */
-function getAttributeValue(
-	attributes: AttributeType[] | undefined,
-	name: string,
-): string | undefined {
-	return attributes?.find((a) => a.Name === name)?.Value;
-}
-
-/**
- * Validate that username is provided, throw CognitoException if not
- */
-function requireUsername(
-	username: string | undefined,
-): asserts username is string {
-	if (!username) {
-		throw new CognitoException(
-			"InvalidParameterException",
-			"1 validation error detected: Value at 'username' failed to satisfy constraint: Member must not be null",
-			400,
-		);
-	}
-}
-
-/**
- * Find a user by username in Keycloak, throw UserNotFoundException if not found
- */
-async function getRequiredUser(username: string): Promise<UserRepresentation> {
-	const users = await keycloakClient.users.find({ exact: true, username });
-	const user = users.at(0);
-	if (!user) {
-		throw new CognitoException(
-			"UserNotFoundException",
-			"User does not exist.",
-			400,
-		);
-	}
-	return user;
-}
+import {
+	cognitoToKeycloakAttributes,
+	getAttributeValue,
+	getRequiredUser,
+	keycloakToCognitoAttributes,
+	keycloakToCognitoUser,
+	requireUsername,
+} from "./utils.js";
 
 // ============ User Action Handlers ============
 
@@ -190,6 +45,7 @@ async function adminCreateUser(
 	const emailVerifiedAttr = getAttributeValue(UserAttributes, "email_verified");
 
 	// Build Keycloak user payload
+	const now = new Date().toISOString();
 	const keycloakPayload = {
 		username: Username,
 		email,
@@ -197,7 +53,10 @@ async function adminCreateUser(
 		lastName,
 		enabled: true,
 		emailVerified: emailVerifiedAttr === "true" || MessageAction === "SUPPRESS",
-		attributes: cognitoToKeycloakAttributes(UserAttributes),
+		attributes: {
+			...cognitoToKeycloakAttributes(UserAttributes),
+			lastModifiedDate: [now],
+		},
 		credentials: TemporaryPassword
 			? [
 					{
@@ -243,15 +102,19 @@ async function adminGetUser(
 	requireUsername(request.Username);
 	const user = await getRequiredUser(request.Username);
 
+	const createdTimestamp = user.createdTimestamp
+		? new Date(user.createdTimestamp)
+		: undefined;
+
+	const lastModifiedDate = user.attributes?.lastModifiedDate?.[0]
+		? new Date(user.attributes.lastModifiedDate[0])
+		: createdTimestamp;
+
 	return {
 		Username: user.username,
 		UserAttributes: keycloakToCognitoAttributes(user),
-		UserCreateDate: user.createdTimestamp
-			? new Date(user.createdTimestamp)
-			: new Date(),
-		UserLastModifiedDate: user.createdTimestamp
-			? new Date(user.createdTimestamp)
-			: new Date(),
+		UserCreateDate: createdTimestamp,
+		UserLastModifiedDate: lastModifiedDate,
 		Enabled: user.enabled,
 		UserStatus: user.enabled ? "CONFIRMED" : "ARCHIVED",
 	};
@@ -286,6 +149,7 @@ async function adminUpdateUserAttributes(
 			attributes: {
 				...user.attributes,
 				...cognitoToKeycloakAttributes(UserAttributes),
+				lastModifiedDate: [new Date().toISOString()],
 			},
 		},
 	);
@@ -316,6 +180,18 @@ async function adminSetUserPassword(
 			temporary: !request.Permanent,
 		},
 	});
+
+	// Update lastModifiedDate
+	await keycloakClient.users.update(
+		{ id: user.id! },
+		{
+			attributes: {
+				...user.attributes,
+				lastModifiedDate: [new Date().toISOString()],
+			},
+		},
+	);
+
 	return {};
 }
 
@@ -325,7 +201,16 @@ async function adminEnableUser(
 	await authenticate();
 	requireUsername(request.Username);
 	const user = await getRequiredUser(request.Username);
-	await keycloakClient.users.update({ id: user.id! }, { enabled: true });
+	await keycloakClient.users.update(
+		{ id: user.id! },
+		{
+			enabled: true,
+			attributes: {
+				...user.attributes,
+				lastModifiedDate: [new Date().toISOString()],
+			},
+		},
+	);
 	return {};
 }
 
@@ -335,7 +220,16 @@ async function adminDisableUser(
 	await authenticate();
 	requireUsername(request.Username);
 	const user = await getRequiredUser(request.Username);
-	await keycloakClient.users.update({ id: user.id! }, { enabled: false });
+	await keycloakClient.users.update(
+		{ id: user.id! },
+		{
+			enabled: false,
+			attributes: {
+				...user.attributes,
+				lastModifiedDate: [new Date().toISOString()],
+			},
+		},
+	);
 	return {};
 }
 
