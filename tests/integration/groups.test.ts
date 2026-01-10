@@ -17,6 +17,7 @@ import type KcAdminClient from "@keycloak/keycloak-admin-client";
 import {
 	getKeycloakAdminClient,
 	setupEnvironment,
+	stopServer,
 	USER_POOL_ID,
 } from "../setup.js";
 
@@ -59,6 +60,7 @@ describe("Cognito Group Management", () => {
 				// Ignore errors during cleanup
 			}
 		}
+		await stopServer();
 	});
 
 	/**

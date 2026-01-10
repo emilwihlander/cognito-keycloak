@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it } from "bun:test";
+import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { isDeepStrictEqual } from "node:util";
 import {
 	AdminAddUserToGroupCommand,
@@ -20,7 +20,7 @@ import {
 	ListUsersInGroupCommand,
 	UpdateGroupCommand,
 } from "@aws-sdk/client-cognito-identity-provider";
-import { setupEnvironment, USER_POOL_ID } from "../setup.js";
+import { setupEnvironment, stopServer, USER_POOL_ID } from "../setup.js";
 
 const REAL_USER_POOL_ID = process.env.REAL_USER_POOL_ID!;
 const REAL_COGNITO_REGION = process.env.REAL_COGNITO_REGION || "us-east-1";
@@ -355,6 +355,10 @@ conformanceDescribe("Conformance tests (emulator vs real AWS Cognito)", () => {
 		]);
 	});
 
+	afterAll(async () => {
+		await stopServer();
+	});
+
 	it("ListUsers: should list created user with matching structure", async () => {
 		const username = `conformance-list-${Date.now()}`;
 		const email = `${username}@hejare.se`;
@@ -661,7 +665,7 @@ conformanceDescribe("Conformance tests (emulator vs real AWS Cognito)", () => {
 				`Conformance failure(s):\n${JSON.stringify(diffs, null, 2)}`,
 			);
 		}
-	});
+	}, 10_000);
 
 	it("Group lifecycle: create → get → update → add user → list users → remove user → list groups for user → delete", async () => {
 		const diffs: Array<{
@@ -965,5 +969,5 @@ conformanceDescribe("Conformance tests (emulator vs real AWS Cognito)", () => {
 				`Conformance failure(s):\n${JSON.stringify(diffs, null, 2)}`,
 			);
 		}
-	});
+	}, 10_000);
 });

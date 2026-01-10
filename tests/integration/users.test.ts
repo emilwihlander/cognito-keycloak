@@ -14,7 +14,7 @@ import {
 	type CognitoIdentityProviderClient,
 	ListUsersCommand,
 } from "@aws-sdk/client-cognito-identity-provider";
-import { setupEnvironment, USER_POOL_ID } from "../setup.js";
+import { setupEnvironment, stopServer, USER_POOL_ID } from "../setup.js";
 
 describe("Cognito User Management", () => {
 	let client: CognitoIdentityProviderClient;
@@ -39,6 +39,7 @@ describe("Cognito User Management", () => {
 				// Ignore errors during cleanup
 			}
 		}
+		await stopServer();
 	});
 
 	describe("AdminCreateUser", () => {

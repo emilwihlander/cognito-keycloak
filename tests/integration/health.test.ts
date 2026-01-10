@@ -1,5 +1,5 @@
-import { beforeAll, describe, expect, it } from "bun:test";
-import { setupEnvironment } from "../setup.js";
+import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { setupEnvironment, stopServer } from "../setup.js";
 
 describe("Health Check", () => {
 	let cognitoEndpoint: string;
@@ -9,6 +9,10 @@ describe("Health Check", () => {
 		const setup = await setupEnvironment();
 		cognitoEndpoint = setup.cognitoEndpoint;
 		keycloakEndpoint = setup.keycloakEndpoint;
+	});
+
+	afterAll(async () => {
+		await stopServer();
 	});
 
 	it("should return healthy status from Cognito wrapper", async () => {

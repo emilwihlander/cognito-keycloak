@@ -1,6 +1,4 @@
 import { CognitoIdentityProviderClient } from "@aws-sdk/client-cognito-identity-provider";
-import type { ServerType } from "@hono/node-server";
-import { serve } from "@hono/node-server";
 import KcAdminClient from "@keycloak/keycloak-admin-client";
 import app from "../src/app.js";
 
@@ -10,13 +8,13 @@ const KEYCLOAK_REALM = process.env.KEYCLOAK_REALM || "cognito";
 
 export const USER_POOL_ID = process.env.USER_POOL_ID || "local_pool";
 
-let server: ServerType | null = null;
+let server: ReturnType<typeof Bun.serve> | null = null;
 let cognitoClient: CognitoIdentityProviderClient | null = null;
 
 async function startServer(): Promise<void> {
 	if (server) return;
 
-	server = serve({
+	server = Bun.serve({
 		fetch: app.fetch,
 		port: 9000,
 	});
@@ -36,6 +34,13 @@ async function startServer(): Promise<void> {
 		await new Promise((resolve) => setTimeout(resolve, 100));
 	}
 	throw new Error("Server failed to start");
+}
+
+async function stopServer(): Promise<void> {
+	if (server) {
+		server.stop();
+		server = null;
+	}
 }
 
 export async function setupEnvironment(): Promise<{
@@ -104,3 +109,5 @@ export async function getKeycloakAdminClient(): Promise<KcAdminClient> {
 
 	return kcAdmin;
 }
+
+export { stopServer };
