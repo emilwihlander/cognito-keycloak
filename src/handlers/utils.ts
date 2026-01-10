@@ -1,12 +1,14 @@
 import type {
 	AttributeType,
 	GroupType,
+	SchemaAttributeType,
 	UserType,
 } from "@aws-sdk/client-cognito-identity-provider";
 import type GroupRepresentation from "@keycloak/keycloak-admin-client/lib/defs/groupRepresentation.js";
 import type UserRepresentation from "@keycloak/keycloak-admin-client/lib/defs/userRepresentation.js";
 import { keycloakClient } from "../keycloak/client.js";
 import { CognitoException } from "./index.js";
+import { SCHEMA_ATTRIBUTES } from "./user-pool.js";
 
 // ============ Validation Functions ============
 
@@ -157,6 +159,89 @@ export function getAttributeValue(
 	name: string,
 ): string | undefined {
 	return attributes?.find((a) => a.Name === name)?.Value;
+}
+
+// ============ Schema Functions ============
+
+/**
+ * Get a lookup map for schema attributes by name
+ * Returns a Map where keys are attribute names and values are SchemaAttributeType objects
+ */
+export function getSchemaAttributeMap(): Map<string, SchemaAttributeType> {
+	return new Map(
+		SCHEMA_ATTRIBUTES.filter((attr) => attr.Name).map((attr) => [
+			attr.Name!,
+			attr,
+		]),
+	);
+}
+
+/**
+ * Map Cognito attribute name to schema attribute name
+ * Handles standard attributes and custom attributes (removes "custom:" prefix)
+ */
+function mapCognitoToSchemaAttributeName(cognitoAttrName: string): string {
+	switch (cognitoAttrName) {
+		case "email":
+			return "email";
+		case "given_name":
+			return "given_name";
+		case "family_name":
+			return "family_name";
+		case "email_verified":
+			return "email_verified";
+		default:
+			// For custom attributes, remove the "custom:" prefix
+			return cognitoAttrName.replace(/^custom:/, "");
+	}
+}
+
+/**
+ * Get schema attribute for a Cognito attribute name
+ * Returns the SchemaAttributeType or undefined if not found
+ */
+function getSchemaAttribute(
+	cognitoAttrName: string,
+	schemaMap: Map<string, SchemaAttributeType>,
+): SchemaAttributeType | undefined {
+	const schemaAttrName = mapCognitoToSchemaAttributeName(cognitoAttrName);
+	return schemaMap.get(schemaAttrName);
+}
+
+/**
+ * Validate that an attribute can be modified (not immutable)
+ * Throws CognitoException if the attribute is immutable
+ */
+export function validateAttributeMutable(
+	cognitoAttrName: string,
+	schemaMap: Map<string, SchemaAttributeType>,
+): void {
+	const schemaAttr = getSchemaAttribute(cognitoAttrName, schemaMap);
+	if (schemaAttr?.Mutable === false) {
+		throw new CognitoException(
+			"InvalidParameterException",
+			`Cannot modify immutable attribute: ${cognitoAttrName}`,
+			400,
+		);
+	}
+}
+
+/**
+ * Validate that an attribute can be deleted (not required)
+ * Throws CognitoException if the attribute is required
+ */
+export function validateAttributeDeletable(
+	cognitoAttrName: string,
+	schemaMap: Map<string, SchemaAttributeType>,
+): void {
+	const schemaAttr = getSchemaAttribute(cognitoAttrName, schemaMap);
+	if (schemaAttr?.Required === true) {
+		throw new CognitoException(
+			"InvalidParameterException",
+			`Cannot delete required attribute: ${cognitoAttrName}`,
+			400,
+		);
+	}
 }
 
 // ============ Entity Conversion Functions ============

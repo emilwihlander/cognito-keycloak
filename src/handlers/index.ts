@@ -26,9 +26,13 @@ const actionHandlers: Record<string, ActionHandler> = {
 	AdminDeleteUser: userHandlers.adminDeleteUser,
 	AdminGetUser: userHandlers.adminGetUser,
 	AdminUpdateUserAttributes: userHandlers.adminUpdateUserAttributes,
+	AdminDeleteUserAttributes: userHandlers.adminDeleteUserAttributes,
 	AdminSetUserPassword: userHandlers.adminSetUserPassword,
 	AdminEnableUser: userHandlers.adminEnableUser,
 	AdminDisableUser: userHandlers.adminDisableUser,
+	AdminConfirmSignUp: userHandlers.adminConfirmSignUp,
+	AdminResetUserPassword: userHandlers.adminResetUserPassword,
+	AdminUserGlobalSignOut: userHandlers.adminUserGlobalSignOut,
 	ListUsers: userHandlers.listUsers,
 	// Group management actions
 	AdminListGroupsForUser: groupHandlers.adminListGroupsForUser,

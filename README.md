@@ -101,13 +101,23 @@ curl -X POST http://localhost:4566/ \
 - `AdminDeleteUser` - Delete a user
 - `AdminGetUser` - Get user details
 - `AdminUpdateUserAttributes` - Update user attributes
+- `AdminDeleteUserAttributes` - Delete specific user attributes
 - `AdminSetUserPassword` - Set user password
+- `AdminResetUserPassword` - Reset user password and trigger reset flow
 - `AdminEnableUser` - Enable a user
 - `AdminDisableUser` - Disable a user
+- `AdminConfirmSignUp` - Confirm user registration
+- `AdminUserGlobalSignOut` - Sign out user from all devices
 - `ListUsers` - List all users
 
 ### Group Management
 
+- `CreateGroup` - Create a new group
+- `GetGroup` - Get group details
+- `UpdateGroup` - Update group attributes
+- `DeleteGroup` - Delete a group
+- `ListGroups` - List all groups
+- `ListUsersInGroup` - List users in a group
 - `AdminListGroupsForUser` - List groups for a user
 - `AdminAddUserToGroup` - Add a user to a group
 - `AdminRemoveUserFromGroup` - Remove a user from a group
