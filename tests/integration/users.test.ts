@@ -481,6 +481,60 @@ describe("Cognito User Management", () => {
 				),
 			).rejects.toThrow();
 		});
+
+		it("should throw when attempting to delete required attribute", async () => {
+			const username = `testuser-reqattr-${Date.now()}`;
+			createdUsers.push(username);
+
+			// Create user
+			await client.send(
+				new AdminCreateUserCommand({
+					UserPoolId: USER_POOL_ID,
+					Username: username,
+					UserAttributes: [
+						{ Name: "email", Value: `${username}@example.com` },
+					],
+				}),
+			);
+
+			// Attempt to delete required email attribute - should throw
+			await expect(
+				client.send(
+					new AdminDeleteUserAttributesCommand({
+						UserPoolId: USER_POOL_ID,
+						Username: username,
+						UserAttributeNames: ["email"],
+					}),
+				),
+			).rejects.toThrow("Cannot delete required attribute");
+		});
+
+		it("should throw when attempting to delete immutable attribute", async () => {
+			const username = `testuser-immutattr-${Date.now()}`;
+			createdUsers.push(username);
+
+			// Create user
+			await client.send(
+				new AdminCreateUserCommand({
+					UserPoolId: USER_POOL_ID,
+					Username: username,
+					UserAttributes: [
+						{ Name: "email", Value: `${username}@example.com` },
+					],
+				}),
+			);
+
+			// Attempt to delete immutable sub attribute - should throw
+			await expect(
+				client.send(
+					new AdminDeleteUserAttributesCommand({
+						UserPoolId: USER_POOL_ID,
+						Username: username,
+						UserAttributeNames: ["sub"],
+					}),
+				),
+			).rejects.toThrow("Cannot modify immutable attribute");
+		});
 	});
 
 	describe("AdminConfirmSignUp", () => {

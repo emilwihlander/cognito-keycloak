@@ -32,7 +32,7 @@ const boolAttr = (name: string): SchemaAttributeType => ({
 });
 
 // Standard Cognito user pool schema attributes
-const SCHEMA_ATTRIBUTES: SchemaAttributeType[] = [
+export const SCHEMA_ATTRIBUTES: SchemaAttributeType[] = [
 	stringAttr("sub", { required: true, mutable: false, min: "1" }),
 	stringAttr("email", { required: true }),
 	boolAttr("email_verified"),

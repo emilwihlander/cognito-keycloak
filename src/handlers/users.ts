@@ -27,6 +27,7 @@ import type {
 import type UserRepresentation from "@keycloak/keycloak-admin-client/lib/defs/userRepresentation.js";
 import { authenticate, keycloakClient } from "../keycloak/client.js";
 import { CognitoException } from "./index.js";
+import { SCHEMA_ATTRIBUTES } from "./user-pool.js";
 import {
 	cognitoToKeycloakAttributes,
 	getAttributeValue,
@@ -320,6 +321,11 @@ async function adminDeleteUserAttributes(
 		return {};
 	}
 
+	// Create a lookup map for schema attributes by name
+	const schemaMap = new Map(
+		SCHEMA_ATTRIBUTES.map((attr) => [attr.Name, attr]),
+	);
+
 	// Build updated user payload
 	const updatePayload: {
 		email?: string;
@@ -331,6 +337,45 @@ async function adminDeleteUserAttributes(
 
 	// Handle standard attributes that need to be cleared
 	for (const attrName of UserAttributeNames) {
+		// Map Cognito attribute names to schema attribute names
+		let schemaAttrName: string;
+		switch (attrName) {
+			case "email":
+				schemaAttrName = "email";
+				break;
+			case "given_name":
+				schemaAttrName = "given_name";
+				break;
+			case "family_name":
+				schemaAttrName = "family_name";
+				break;
+			case "email_verified":
+				schemaAttrName = "email_verified";
+				break;
+			default:
+				// For custom attributes, remove the "custom:" prefix
+				schemaAttrName = attrName.replace(/^custom:/, "");
+				break;
+		}
+
+		const schemaAttr = schemaMap.get(schemaAttrName);
+
+		if (schemaAttr?.Mutable === false) {
+			throw new CognitoException(
+				"InvalidParameterException",
+				`Cannot modify immutable attribute: ${attrName}`,
+				400,
+			);
+		}
+
+		if (schemaAttr?.Required === true) {
+			throw new CognitoException(
+				"InvalidParameterException",
+				`Cannot delete required attribute: ${attrName}`,
+				400,
+			);
+		}
+
 		switch (attrName) {
 			case "email":
 				updatePayload.email = "";
