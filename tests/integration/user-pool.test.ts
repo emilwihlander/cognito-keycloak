@@ -1,11 +1,11 @@
-import { beforeAll, describe, expect, it } from "bun:test";
+import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import {
 	AdminCreateUserCommand,
 	AdminDeleteUserCommand,
 	type CognitoIdentityProviderClient,
 	DescribeUserPoolCommand,
 } from "@aws-sdk/client-cognito-identity-provider";
-import { setupEnvironment, USER_POOL_ID } from "../setup.js";
+import { setupEnvironment, stopServer, USER_POOL_ID } from "../setup.js";
 
 describe("Cognito User Pool", () => {
 	let client: CognitoIdentityProviderClient;
@@ -13,6 +13,10 @@ describe("Cognito User Pool", () => {
 	beforeAll(async () => {
 		const setup = await setupEnvironment();
 		client = setup.cognitoClient;
+	});
+
+	afterAll(async () => {
+		await stopServer();
 	});
 
 	describe("DescribeUserPool", () => {

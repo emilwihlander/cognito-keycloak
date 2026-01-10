@@ -36,6 +36,13 @@ async function startServer(): Promise<void> {
 	throw new Error("Server failed to start");
 }
 
+async function stopServer(): Promise<void> {
+	if (server) {
+		server.stop();
+		server = null;
+	}
+}
+
 export async function setupEnvironment(): Promise<{
 	cognitoClient: CognitoIdentityProviderClient;
 	cognitoEndpoint: string;
@@ -102,3 +109,5 @@ export async function getKeycloakAdminClient(): Promise<KcAdminClient> {
 
 	return kcAdmin;
 }
+
+export { stopServer };
