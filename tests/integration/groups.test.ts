@@ -267,6 +267,21 @@ describe("Cognito Group Management", () => {
 
 			expect(response.Groups).toBeDefined();
 			expect(response.Groups?.length).toBeLessThanOrEqual(2);
+
+			// Verify NextToken is returned when more groups exist
+			// (we created 3 groups, limit is 2, so there should be more)
+			expect(response.NextToken).toBeDefined();
+
+			// Verify we can use NextToken to get more groups
+			const response2 = await client.send(
+				new ListGroupsCommand({
+					UserPoolId: USER_POOL_ID,
+					Limit: 2,
+					NextToken: response.NextToken,
+				}),
+			);
+
+			expect(response2.Groups).toBeDefined();
 		});
 	});
 

@@ -146,9 +146,16 @@ async function createGroup(
 
 	// Fetch the created group to return full details
 	const createdGroup = await keycloakClient.groups.findOne({ id: result.id });
+	if (!createdGroup) {
+		throw new CognitoException(
+			"InternalErrorException",
+			"Failed to retrieve created group",
+			500,
+		);
+	}
 
 	return {
-		Group: createdGroup ? keycloakToCognitoGroup(createdGroup) : undefined,
+		Group: keycloakToCognitoGroup(createdGroup),
 	};
 }
 
@@ -164,21 +171,10 @@ async function getGroup(request: GetGroupRequest): Promise<GetGroupResponse> {
 	await authenticate();
 	requireGroupName(request.GroupName);
 
-	const groups = await keycloakClient.groups.find({
-		search: request.GroupName,
-	});
-	const group = groups.find((g) => g.name === request.GroupName);
-
-	if (!group || !group.id) {
-		throw new CognitoException(
-			"ResourceNotFoundException",
-			"Group not found.",
-			400,
-		);
-	}
+	const group = await getRequiredGroup(request.GroupName);
 
 	// Get full group details including attributes
-	const fullGroup = await keycloakClient.groups.findOne({ id: group.id });
+	const fullGroup = await keycloakClient.groups.findOne({ id: group.id! });
 
 	return {
 		Group: fullGroup ? keycloakToCognitoGroup(fullGroup) : undefined,

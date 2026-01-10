@@ -228,9 +228,11 @@ export function keycloakToCognitoGroup(group: GroupRepresentation): GroupType {
 	return {
 		GroupName: group.name,
 		Description: attributes.description?.[0],
-		Precedence: attributes.precedence?.[0]
-			? parseInt(attributes.precedence[0], 10)
-			: undefined,
+		Precedence:
+			attributes.precedence?.[0] &&
+			!Number.isNaN(parseInt(attributes.precedence[0], 10))
+				? parseInt(attributes.precedence[0], 10)
+				: undefined,
 		RoleArn: attributes.roleArn?.[0],
 		CreationDate: creationDate,
 		LastModifiedDate: lastModifiedDate,

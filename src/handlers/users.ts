@@ -104,7 +104,7 @@ async function adminGetUser(
 
 	const createdTimestamp = user.createdTimestamp
 		? new Date(user.createdTimestamp)
-		: new Date();
+		: undefined;
 
 	const lastModifiedDate = user.attributes?.lastModifiedDate?.[0]
 		? new Date(user.attributes.lastModifiedDate[0])
