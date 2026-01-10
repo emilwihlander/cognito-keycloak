@@ -661,7 +661,7 @@ conformanceDescribe("Conformance tests (emulator vs real AWS Cognito)", () => {
 				`Conformance failure(s):\n${JSON.stringify(diffs, null, 2)}`,
 			);
 		}
-	});
+	}, 10_000);
 
 	it("Group lifecycle: create → get → update → add user → list users → remove user → list groups for user → delete", async () => {
 		const diffs: Array<{
@@ -965,5 +965,5 @@ conformanceDescribe("Conformance tests (emulator vs real AWS Cognito)", () => {
 				`Conformance failure(s):\n${JSON.stringify(diffs, null, 2)}`,
 			);
 		}
-	});
+	}, 10_000);
 });
