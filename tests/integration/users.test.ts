@@ -220,6 +220,31 @@ describe("Cognito User Management", () => {
 			);
 			expect(familyNameAttr?.Value).toBe("NewLastName");
 		});
+
+		it("should throw when attempting to update immutable attribute", async () => {
+			const username = `testuser-immutupdate-${Date.now()}`;
+			createdUsers.push(username);
+
+			// Create user
+			await client.send(
+				new AdminCreateUserCommand({
+					UserPoolId: USER_POOL_ID,
+					Username: username,
+					UserAttributes: [{ Name: "email", Value: `${username}@example.com` }],
+				}),
+			);
+
+			// Attempt to update immutable sub attribute - should throw
+			await expect(
+				client.send(
+					new AdminUpdateUserAttributesCommand({
+						UserPoolId: USER_POOL_ID,
+						Username: username,
+						UserAttributes: [{ Name: "sub", Value: "new-sub-value" }],
+					}),
+				),
+			).rejects.toThrow("Cannot modify immutable attribute");
+		});
 	});
 
 	describe("AdminSetUserPassword", () => {
@@ -491,9 +516,7 @@ describe("Cognito User Management", () => {
 				new AdminCreateUserCommand({
 					UserPoolId: USER_POOL_ID,
 					Username: username,
-					UserAttributes: [
-						{ Name: "email", Value: `${username}@example.com` },
-					],
+					UserAttributes: [{ Name: "email", Value: `${username}@example.com` }],
 				}),
 			);
 
@@ -518,9 +541,7 @@ describe("Cognito User Management", () => {
 				new AdminCreateUserCommand({
 					UserPoolId: USER_POOL_ID,
 					Username: username,
-					UserAttributes: [
-						{ Name: "email", Value: `${username}@example.com` },
-					],
+					UserAttributes: [{ Name: "email", Value: `${username}@example.com` }],
 				}),
 			);
 
