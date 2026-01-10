@@ -144,6 +144,15 @@ async function createGroup(
 		attributes,
 	});
 
+	// Validate that we got a valid group ID back from Keycloak
+	if (!result.id) {
+		throw new CognitoException(
+			"InternalErrorException",
+			"Failed to create group",
+			500,
+		);
+	}
+
 	// Fetch the created group to return full details
 	const createdGroup = await keycloakClient.groups.findOne({ id: result.id });
 	if (!createdGroup) {
