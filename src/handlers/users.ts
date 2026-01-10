@@ -1,6 +1,10 @@
 import type {
+	AdminConfirmSignUpRequest,
+	AdminConfirmSignUpResponse,
 	AdminCreateUserRequest,
 	AdminCreateUserResponse,
+	AdminDeleteUserAttributesRequest,
+	AdminDeleteUserAttributesResponse,
 	AdminDeleteUserRequest,
 	AdminDisableUserRequest,
 	AdminDisableUserResponse,
@@ -8,10 +12,14 @@ import type {
 	AdminEnableUserResponse,
 	AdminGetUserRequest,
 	AdminGetUserResponse,
+	AdminResetUserPasswordRequest,
+	AdminResetUserPasswordResponse,
 	AdminSetUserPasswordRequest,
 	AdminSetUserPasswordResponse,
 	AdminUpdateUserAttributesRequest,
 	AdminUpdateUserAttributesResponse,
+	AdminUserGlobalSignOutRequest,
+	AdminUserGlobalSignOutResponse,
 	ListUsersRequest,
 	ListUsersResponse,
 	UserType,
@@ -110,13 +118,26 @@ async function adminGetUser(
 		? new Date(user.attributes.lastModifiedDate[0])
 		: createdTimestamp;
 
+	// Determine user status based on Keycloak state
+	// - If disabled → ARCHIVED
+	// - If has UPDATE_PASSWORD required action → FORCE_CHANGE_PASSWORD
+	// - Otherwise → CONFIRMED
+	let userStatus: "ARCHIVED" | "FORCE_CHANGE_PASSWORD" | "CONFIRMED";
+	if (!user.enabled) {
+		userStatus = "ARCHIVED";
+	} else if (user.requiredActions?.includes("UPDATE_PASSWORD")) {
+		userStatus = "FORCE_CHANGE_PASSWORD";
+	} else {
+		userStatus = "CONFIRMED";
+	}
+
 	return {
 		Username: user.username,
 		UserAttributes: keycloakToCognitoAttributes(user),
 		UserCreateDate: createdTimestamp,
 		UserLastModifiedDate: lastModifiedDate,
 		Enabled: user.enabled,
-		UserStatus: user.enabled ? "CONFIRMED" : "ARCHIVED",
+		UserStatus: userStatus,
 	};
 }
 
@@ -287,6 +308,148 @@ async function listUsers(
 	};
 }
 
+async function adminDeleteUserAttributes(
+	request: AdminDeleteUserAttributesRequest,
+): Promise<AdminDeleteUserAttributesResponse> {
+	await authenticate();
+	requireUsername(request.Username);
+	const user = await getRequiredUser(request.Username);
+
+	const { UserAttributeNames } = request;
+	if (!UserAttributeNames || UserAttributeNames.length === 0) {
+		return {};
+	}
+
+	// Build updated user payload
+	const updatePayload: {
+		email?: string;
+		firstName?: string;
+		lastName?: string;
+		emailVerified?: boolean;
+		attributes?: Record<string, string[]>;
+	} = {};
+
+	// Handle standard attributes that need to be cleared
+	for (const attrName of UserAttributeNames) {
+		switch (attrName) {
+			case "email":
+				updatePayload.email = "";
+				break;
+			case "given_name":
+				updatePayload.firstName = "";
+				break;
+			case "family_name":
+				updatePayload.lastName = "";
+				break;
+			case "email_verified":
+				updatePayload.emailVerified = false;
+				break;
+		}
+	}
+
+	// Handle custom attributes - remove them from the attributes object
+	const currentAttributes = { ...(user.attributes || {}) };
+	for (const attrName of UserAttributeNames) {
+		// Remove custom: prefix if present
+		const keyName = attrName.replace(/^custom:/, "");
+		// Delete the attribute if it exists
+		delete currentAttributes[keyName];
+	}
+
+	// Update lastModifiedDate
+	currentAttributes.lastModifiedDate = [new Date().toISOString()];
+	updatePayload.attributes = currentAttributes;
+
+	await keycloakClient.users.update({ id: user.id! }, updatePayload);
+
+	return {};
+}
+
+async function adminConfirmSignUp(
+	request: AdminConfirmSignUpRequest,
+): Promise<AdminConfirmSignUpResponse> {
+	await authenticate();
+	requireUsername(request.Username);
+	const user = await getRequiredUser(request.Username);
+
+	// Confirm signup by:
+	// 1. Setting emailVerified to true
+	// 2. Removing any VERIFY_EMAIL required action
+	const requiredActions = (user.requiredActions || []).filter(
+		(action) => action !== "VERIFY_EMAIL",
+	);
+
+	await keycloakClient.users.update(
+		{ id: user.id! },
+		{
+			emailVerified: true,
+			requiredActions,
+			attributes: {
+				...user.attributes,
+				lastModifiedDate: [new Date().toISOString()],
+			},
+		},
+	);
+
+	return {};
+}
+
+async function adminResetUserPassword(
+	request: AdminResetUserPasswordRequest,
+): Promise<AdminResetUserPasswordResponse> {
+	await authenticate();
+	requireUsername(request.Username);
+	const user = await getRequiredUser(request.Username);
+
+	// Build new required actions array with UPDATE_PASSWORD
+	// This puts the user in RESET_REQUIRED/FORCE_CHANGE_PASSWORD state
+	const currentActions = user.requiredActions || [];
+	const requiredActions = currentActions.includes("UPDATE_PASSWORD")
+		? currentActions
+		: [...currentActions, "UPDATE_PASSWORD"];
+
+	// Update user to have UPDATE_PASSWORD required action
+	await keycloakClient.users.update(
+		{ id: user.id! },
+		{
+			requiredActions,
+			attributes: {
+				...user.attributes,
+				lastModifiedDate: [new Date().toISOString()],
+			},
+		},
+	);
+
+	// Try to send the password reset email if user has a verified email
+	// This may fail if email is not configured in Keycloak - that's OK
+	if (user.email && user.emailVerified) {
+		try {
+			await keycloakClient.users.executeActionsEmail({
+				id: user.id!,
+				actions: ["UPDATE_PASSWORD"],
+			});
+		} catch {
+			// Email sending failed (e.g., SMTP not configured) - this is acceptable
+			// The user is already in RESET_REQUIRED state
+		}
+	}
+
+	return {};
+}
+
+async function adminUserGlobalSignOut(
+	request: AdminUserGlobalSignOutRequest,
+): Promise<AdminUserGlobalSignOutResponse> {
+	await authenticate();
+	requireUsername(request.Username);
+	const user = await getRequiredUser(request.Username);
+
+	// Logout user from all sessions
+	await keycloakClient.users.logout({ id: user.id! });
+
+	return {};
+}
+
 // Export all handlers
 export const userHandlers = {
 	adminCreateUser,
@@ -297,4 +460,8 @@ export const userHandlers = {
 	adminEnableUser,
 	adminDisableUser,
 	listUsers,
+	adminDeleteUserAttributes,
+	adminConfirmSignUp,
+	adminResetUserPassword,
+	adminUserGlobalSignOut,
 };
