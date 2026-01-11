@@ -17,7 +17,7 @@ import type {
 	UpdateGroupResponse,
 	UserType,
 } from "@aws-sdk/client-cognito-identity-provider";
-import { authenticate, keycloakClient } from "../keycloak/client.js";
+import { getClientForUserPool } from "../keycloak/client.js";
 import { CognitoException } from "./index.js";
 import {
 	getRequiredGroup,
@@ -33,11 +33,11 @@ import {
 async function adminListGroupsForUser(
 	request: AdminListGroupsForUserRequest,
 ): Promise<AdminListGroupsForUserResponse> {
-	await authenticate();
+	const client = await getClientForUserPool(request);
 	requireUsername(request.Username);
 
-	const user = await getRequiredUser(request.Username);
-	const groups = await keycloakClient.users.listGroups({ id: user.id! });
+	const user = await getRequiredUser(client, request.Username);
+	const groups = await client.users.listGroups({ id: user.id! });
 
 	// Handle pagination
 	const limit = request.Limit || 60;
@@ -49,7 +49,7 @@ async function adminListGroupsForUser(
 	const fullGroups = await Promise.all(
 		paginatedGroups.map(async (group) => {
 			if (!group.id) return group;
-			const fullGroup = await keycloakClient.groups.findOne({ id: group.id });
+			const fullGroup = await client.groups.findOne({ id: group.id });
 			return fullGroup ?? group;
 		}),
 	);
@@ -73,14 +73,14 @@ async function adminListGroupsForUser(
 async function adminAddUserToGroup(
 	request: AdminAddUserToGroupRequest,
 ): Promise<void> {
-	await authenticate();
+	const client = await getClientForUserPool(request);
 	requireUsername(request.Username);
 	requireGroupName(request.GroupName);
 
-	const user = await getRequiredUser(request.Username);
-	const group = await getRequiredGroup(request.GroupName);
+	const user = await getRequiredUser(client, request.Username);
+	const group = await getRequiredGroup(client, request.GroupName);
 
-	await keycloakClient.users.addToGroup({
+	await client.users.addToGroup({
 		id: user.id!,
 		groupId: group.id!,
 	});
@@ -89,14 +89,14 @@ async function adminAddUserToGroup(
 async function adminRemoveUserFromGroup(
 	request: AdminRemoveUserFromGroupRequest,
 ): Promise<void> {
-	await authenticate();
+	const client = await getClientForUserPool(request);
 	requireUsername(request.Username);
 	requireGroupName(request.GroupName);
 
-	const user = await getRequiredUser(request.Username);
-	const group = await getRequiredGroup(request.GroupName);
+	const user = await getRequiredUser(client, request.Username);
+	const group = await getRequiredGroup(client, request.GroupName);
 
-	await keycloakClient.users.delFromGroup({
+	await client.users.delFromGroup({
 		id: user.id!,
 		groupId: group.id!,
 	});
@@ -105,11 +105,11 @@ async function adminRemoveUserFromGroup(
 async function createGroup(
 	request: CreateGroupRequest,
 ): Promise<CreateGroupResponse> {
-	await authenticate();
+	const client = await getClientForUserPool(request);
 	requireGroupName(request.GroupName);
 
 	// Check if group already exists
-	const existingGroups = await keycloakClient.groups.find({
+	const existingGroups = await client.groups.find({
 		search: request.GroupName,
 	});
 	const existingGroup = existingGroups.find(
@@ -139,7 +139,7 @@ async function createGroup(
 		attributes.roleArn = [request.RoleArn];
 	}
 
-	const result = await keycloakClient.groups.create({
+	const result = await client.groups.create({
 		name: request.GroupName,
 		attributes,
 	});
@@ -154,7 +154,7 @@ async function createGroup(
 	}
 
 	// Fetch the created group to return full details
-	const createdGroup = await keycloakClient.groups.findOne({ id: result.id });
+	const createdGroup = await client.groups.findOne({ id: result.id });
 	if (!createdGroup) {
 		throw new CognitoException(
 			"InternalErrorException",
@@ -169,21 +169,21 @@ async function createGroup(
 }
 
 async function deleteGroup(request: DeleteGroupRequest): Promise<void> {
-	await authenticate();
+	const client = await getClientForUserPool(request);
 	requireGroupName(request.GroupName);
 
-	const group = await getRequiredGroup(request.GroupName);
-	await keycloakClient.groups.del({ id: group.id! });
+	const group = await getRequiredGroup(client, request.GroupName);
+	await client.groups.del({ id: group.id! });
 }
 
 async function getGroup(request: GetGroupRequest): Promise<GetGroupResponse> {
-	await authenticate();
+	const client = await getClientForUserPool(request);
 	requireGroupName(request.GroupName);
 
-	const group = await getRequiredGroup(request.GroupName);
+	const group = await getRequiredGroup(client, request.GroupName);
 
 	// Get full group details including attributes
-	const fullGroup = await keycloakClient.groups.findOne({ id: group.id! });
+	const fullGroup = await client.groups.findOne({ id: group.id! });
 
 	return {
 		Group: fullGroup ? keycloakToCognitoGroup(fullGroup) : undefined,
@@ -193,13 +193,13 @@ async function getGroup(request: GetGroupRequest): Promise<GetGroupResponse> {
 async function listGroups(
 	request: ListGroupsRequest,
 ): Promise<ListGroupsResponse> {
-	await authenticate();
+	const client = await getClientForUserPool(request);
 
 	const limit = request.Limit || 60;
 	const offset = request.NextToken ? parseInt(request.NextToken, 10) : 0;
 
 	// Keycloak uses first/max for pagination
-	const groups = await keycloakClient.groups.find({
+	const groups = await client.groups.find({
 		first: offset,
 		max: limit,
 	});
@@ -223,16 +223,16 @@ async function listGroups(
 async function listUsersInGroup(
 	request: ListUsersInGroupRequest,
 ): Promise<ListUsersInGroupResponse> {
-	await authenticate();
+	const client = await getClientForUserPool(request);
 	requireGroupName(request.GroupName);
 
-	const group = await getRequiredGroup(request.GroupName);
+	const group = await getRequiredGroup(client, request.GroupName);
 
 	const limit = request.Limit || 60;
 	const offset = request.NextToken ? parseInt(request.NextToken, 10) : 0;
 
 	// Get group members from Keycloak
-	const members = await keycloakClient.groups.listMembers({
+	const members = await client.groups.listMembers({
 		id: group.id!,
 		first: offset,
 		max: limit,
@@ -257,13 +257,13 @@ async function listUsersInGroup(
 async function updateGroup(
 	request: UpdateGroupRequest,
 ): Promise<UpdateGroupResponse> {
-	await authenticate();
+	const client = await getClientForUserPool(request);
 	requireGroupName(request.GroupName);
 
-	const group = await getRequiredGroup(request.GroupName);
+	const group = await getRequiredGroup(client, request.GroupName);
 
 	// Get existing group to preserve unchanged attributes
-	const existingGroup = await keycloakClient.groups.findOne({ id: group.id! });
+	const existingGroup = await client.groups.findOne({ id: group.id! });
 	const existingAttributes = existingGroup?.attributes || {};
 
 	// Build updated attributes
@@ -290,7 +290,7 @@ async function updateGroup(
 		}
 	}
 
-	await keycloakClient.groups.update(
+	await client.groups.update(
 		{ id: group.id! },
 		{
 			name: group.name,
@@ -299,7 +299,7 @@ async function updateGroup(
 	);
 
 	// Fetch updated group
-	const updatedGroup = await keycloakClient.groups.findOne({ id: group.id! });
+	const updatedGroup = await client.groups.findOne({ id: group.id! });
 
 	return {
 		Group: updatedGroup ? keycloakToCognitoGroup(updatedGroup) : undefined,
