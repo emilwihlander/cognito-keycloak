@@ -8,7 +8,7 @@ echo ""
 
 # Start Keycloak in the background with health enabled
 echo "→ Starting Keycloak..."
-/opt/keycloak/bin/kc.sh start-dev --import-realm --health-enabled=true &
+/opt/keycloak/bin/kc.sh start-dev --health-enabled=true &
 KEYCLOAK_PID=$!
 
 # Wait for Keycloak to be ready using TCP port check and then a simple HTTP check
@@ -23,7 +23,7 @@ while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
         # Port is open, now check if realm endpoint responds
         # Use a simple HEAD request via bash
         if exec 3<>/dev/tcp/localhost/8080 2>/dev/null; then
-            echo -e "GET /realms/cognito HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n" >&3
+            echo -e "GET /realms/master/.well-known/openid-configuration HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n" >&3
             RESPONSE=$(cat <&3 | head -1)
             exec 3>&-
             if [[ "$RESPONSE" == *"200"* ]]; then
@@ -48,6 +48,7 @@ fi
 sleep 2
 
 # Start the Cognito wrapper
+# The wrapper will create the default realm on startup
 echo ""
 echo "→ Starting Cognito API wrapper..."
 echo "╔════════════════════════════════════════════════════════════╗"

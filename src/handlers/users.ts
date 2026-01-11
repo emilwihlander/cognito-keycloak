@@ -25,7 +25,7 @@ import type {
 	UserType,
 } from "@aws-sdk/client-cognito-identity-provider";
 import type UserRepresentation from "@keycloak/keycloak-admin-client/lib/defs/userRepresentation.js";
-import { authenticate, keycloakClient } from "../keycloak/client.js";
+import { getClientForUserPool } from "../keycloak/client.js";
 import { CognitoException } from "./index.js";
 import {
 	cognitoToKeycloakAttributes,
@@ -44,7 +44,7 @@ import {
 async function adminCreateUser(
 	request: AdminCreateUserRequest,
 ): Promise<AdminCreateUserResponse> {
-	await authenticate();
+	const client = await getClientForUserPool(request);
 	const { Username, UserAttributes, TemporaryPassword, MessageAction } =
 		request;
 	requireUsername(Username);
@@ -79,7 +79,7 @@ async function adminCreateUser(
 			: undefined,
 	};
 
-	const result = await keycloakClient.users.create(keycloakPayload);
+	const result = await client.users.create(keycloakPayload);
 
 	// Validate that we got a valid user ID back from Keycloak
 	if (!result.id) {
@@ -92,7 +92,7 @@ async function adminCreateUser(
 
 	// Fetch the created user to return full details
 	// Keycloak will have set requiredActions: ["UPDATE_PASSWORD"] if temporary password was used
-	const createdUser = await keycloakClient.users.findOne({ id: result.id });
+	const createdUser = await client.users.findOne({ id: result.id });
 
 	return {
 		User: keycloakToCognitoUser(createdUser!),
@@ -100,18 +100,18 @@ async function adminCreateUser(
 }
 
 async function adminDeleteUser(request: AdminDeleteUserRequest): Promise<void> {
-	await authenticate();
+	const client = await getClientForUserPool(request);
 	requireUsername(request.Username);
-	const user = await getRequiredUser(request.Username);
-	await keycloakClient.users.del({ id: user.id! });
+	const user = await getRequiredUser(client, request.Username);
+	await client.users.del({ id: user.id! });
 }
 
 async function adminGetUser(
 	request: AdminGetUserRequest,
 ): Promise<AdminGetUserResponse> {
-	await authenticate();
+	const client = await getClientForUserPool(request);
 	requireUsername(request.Username);
-	const user = await getRequiredUser(request.Username);
+	const user = await getRequiredUser(client, request.Username);
 
 	const createdTimestamp = user.createdTimestamp
 		? new Date(user.createdTimestamp)
@@ -147,9 +147,9 @@ async function adminGetUser(
 async function adminUpdateUserAttributes(
 	request: AdminUpdateUserAttributesRequest,
 ): Promise<AdminUpdateUserAttributesResponse> {
-	await authenticate();
+	const client = await getClientForUserPool(request);
 	requireUsername(request.Username);
-	const user = await getRequiredUser(request.Username);
+	const user = await getRequiredUser(client, request.Username);
 
 	const { UserAttributes } = request;
 	if (!UserAttributes) {
@@ -168,7 +168,7 @@ async function adminUpdateUserAttributes(
 	const lastName = getAttributeValue(UserAttributes, "family_name");
 	const emailVerified = getAttributeValue(UserAttributes, "email_verified");
 
-	await keycloakClient.users.update(
+	await client.users.update(
 		{ id: user.id! },
 		{
 			...(email !== undefined && { email }),
@@ -191,7 +191,7 @@ async function adminUpdateUserAttributes(
 async function adminSetUserPassword(
 	request: AdminSetUserPasswordRequest,
 ): Promise<AdminSetUserPasswordResponse> {
-	await authenticate();
+	const client = await getClientForUserPool(request);
 	requireUsername(request.Username);
 
 	if (!request.Password) {
@@ -202,8 +202,8 @@ async function adminSetUserPassword(
 		);
 	}
 
-	const user = await getRequiredUser(request.Username);
-	await keycloakClient.users.resetPassword({
+	const user = await getRequiredUser(client, request.Username);
+	await client.users.resetPassword({
 		id: user.id!,
 		credential: {
 			type: "password",
@@ -213,7 +213,7 @@ async function adminSetUserPassword(
 	});
 
 	// Update lastModifiedDate
-	await keycloakClient.users.update(
+	await client.users.update(
 		{ id: user.id! },
 		{
 			attributes: {
@@ -229,10 +229,10 @@ async function adminSetUserPassword(
 async function adminEnableUser(
 	request: AdminEnableUserRequest,
 ): Promise<AdminEnableUserResponse> {
-	await authenticate();
+	const client = await getClientForUserPool(request);
 	requireUsername(request.Username);
-	const user = await getRequiredUser(request.Username);
-	await keycloakClient.users.update(
+	const user = await getRequiredUser(client, request.Username);
+	await client.users.update(
 		{ id: user.id! },
 		{
 			enabled: true,
@@ -248,10 +248,10 @@ async function adminEnableUser(
 async function adminDisableUser(
 	request: AdminDisableUserRequest,
 ): Promise<AdminDisableUserResponse> {
-	await authenticate();
+	const client = await getClientForUserPool(request);
 	requireUsername(request.Username);
-	const user = await getRequiredUser(request.Username);
-	await keycloakClient.users.update(
+	const user = await getRequiredUser(client, request.Username);
+	await client.users.update(
 		{ id: user.id! },
 		{
 			enabled: false,
@@ -267,7 +267,7 @@ async function adminDisableUser(
 async function listUsers(
 	request: ListUsersRequest,
 ): Promise<ListUsersResponse> {
-	await authenticate();
+	const client = await getClientForUserPool(request);
 	const { Limit, Filter, PaginationToken } = request;
 
 	// Parse pagination token (simple offset-based)
@@ -299,7 +299,7 @@ async function listUsers(
 		}
 	}
 
-	const users = await keycloakClient.users.find(searchParams);
+	const users = await client.users.find(searchParams);
 
 	// Convert to Cognito format
 	const cognitoUsers: UserType[] = users.map((user: UserRepresentation) =>
@@ -321,9 +321,9 @@ async function listUsers(
 async function adminDeleteUserAttributes(
 	request: AdminDeleteUserAttributesRequest,
 ): Promise<AdminDeleteUserAttributesResponse> {
-	await authenticate();
+	const client = await getClientForUserPool(request);
 	requireUsername(request.Username);
-	const user = await getRequiredUser(request.Username);
+	const user = await getRequiredUser(client, request.Username);
 
 	const { UserAttributeNames } = request;
 	if (!UserAttributeNames || UserAttributeNames.length === 0) {
@@ -377,7 +377,7 @@ async function adminDeleteUserAttributes(
 	currentAttributes.lastModifiedDate = [new Date().toISOString()];
 	updatePayload.attributes = currentAttributes;
 
-	await keycloakClient.users.update({ id: user.id! }, updatePayload);
+	await client.users.update({ id: user.id! }, updatePayload);
 
 	return {};
 }
@@ -385,9 +385,9 @@ async function adminDeleteUserAttributes(
 async function adminConfirmSignUp(
 	request: AdminConfirmSignUpRequest,
 ): Promise<AdminConfirmSignUpResponse> {
-	await authenticate();
+	const client = await getClientForUserPool(request);
 	requireUsername(request.Username);
-	const user = await getRequiredUser(request.Username);
+	const user = await getRequiredUser(client, request.Username);
 
 	// Confirm signup by:
 	// 1. Setting emailVerified to true
@@ -396,7 +396,7 @@ async function adminConfirmSignUp(
 		(action) => action !== "VERIFY_EMAIL",
 	);
 
-	await keycloakClient.users.update(
+	await client.users.update(
 		{ id: user.id! },
 		{
 			emailVerified: true,
@@ -414,9 +414,9 @@ async function adminConfirmSignUp(
 async function adminResetUserPassword(
 	request: AdminResetUserPasswordRequest,
 ): Promise<AdminResetUserPasswordResponse> {
-	await authenticate();
+	const client = await getClientForUserPool(request);
 	requireUsername(request.Username);
-	const user = await getRequiredUser(request.Username);
+	const user = await getRequiredUser(client, request.Username);
 
 	// Build new required actions array with UPDATE_PASSWORD
 	// This puts the user in RESET_REQUIRED/FORCE_CHANGE_PASSWORD state
@@ -426,7 +426,7 @@ async function adminResetUserPassword(
 		: [...currentActions, "UPDATE_PASSWORD"];
 
 	// Update user to have UPDATE_PASSWORD required action
-	await keycloakClient.users.update(
+	await client.users.update(
 		{ id: user.id! },
 		{
 			requiredActions,
@@ -441,7 +441,7 @@ async function adminResetUserPassword(
 	// This may fail if email is not configured in Keycloak - that's OK
 	if (user.email && user.emailVerified) {
 		try {
-			await keycloakClient.users.executeActionsEmail({
+			await client.users.executeActionsEmail({
 				id: user.id!,
 				actions: ["UPDATE_PASSWORD"],
 			});
@@ -457,12 +457,12 @@ async function adminResetUserPassword(
 async function adminUserGlobalSignOut(
 	request: AdminUserGlobalSignOutRequest,
 ): Promise<AdminUserGlobalSignOutResponse> {
-	await authenticate();
+	const client = await getClientForUserPool(request);
 	requireUsername(request.Username);
-	const user = await getRequiredUser(request.Username);
+	const user = await getRequiredUser(client, request.Username);
 
 	// Logout user from all sessions
-	await keycloakClient.users.logout({ id: user.id! });
+	await client.users.logout({ id: user.id! });
 
 	return {};
 }

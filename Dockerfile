@@ -38,9 +38,6 @@ USER root
 COPY --from=builder /app/cognito-wrapper /opt/cognito/cognito-wrapper
 RUN chmod +x /opt/cognito/cognito-wrapper
 
-# Copy realm configuration
-COPY keycloak/realm-config.json /opt/keycloak/data/import/realm-config.json
-
 # Copy startup script
 COPY entrypoint.sh /opt/cognito/entrypoint.sh
 RUN chmod +x /opt/cognito/entrypoint.sh
@@ -49,7 +46,6 @@ RUN chmod +x /opt/cognito/entrypoint.sh
 ENV KC_BOOTSTRAP_ADMIN_USERNAME=admin
 ENV KC_BOOTSTRAP_ADMIN_PASSWORD=admin
 ENV KEYCLOAK_URL=http://localhost:8080
-ENV KEYCLOAK_REALM=cognito
 ENV PORT=4566
 ENV USER_POOL_ID=local_pool
 

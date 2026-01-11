@@ -4,9 +4,9 @@ import type {
 	SchemaAttributeType,
 	UserType,
 } from "@aws-sdk/client-cognito-identity-provider";
+import type KcAdminClient from "@keycloak/keycloak-admin-client";
 import type GroupRepresentation from "@keycloak/keycloak-admin-client/lib/defs/groupRepresentation.js";
 import type UserRepresentation from "@keycloak/keycloak-admin-client/lib/defs/userRepresentation.js";
-import { keycloakClient } from "../keycloak/client.js";
 import { CognitoException } from "./index.js";
 import { SCHEMA_ATTRIBUTES } from "./user-pool.js";
 
@@ -48,9 +48,10 @@ export function requireGroupName(
  * Find a user by username in Keycloak, throw UserNotFoundException if not found
  */
 export async function getRequiredUser(
+	client: KcAdminClient,
 	username: string,
 ): Promise<UserRepresentation> {
-	const users = await keycloakClient.users.find({ exact: true, username });
+	const users = await client.users.find({ exact: true, username });
 	const user = users.at(0);
 	if (!user || !user.id) {
 		throw new CognitoException(
@@ -66,9 +67,10 @@ export async function getRequiredUser(
  * Find a group by name in Keycloak, throw ResourceNotFoundException if not found
  */
 export async function getRequiredGroup(
+	client: KcAdminClient,
 	groupName: string,
 ): Promise<GroupRepresentation> {
-	const groups = await keycloakClient.groups.find({ search: groupName });
+	const groups = await client.groups.find({ search: groupName });
 	// Find exact match (search is partial match)
 	const group = groups.find((g) => g.name === groupName);
 	if (!group || !group.id) {

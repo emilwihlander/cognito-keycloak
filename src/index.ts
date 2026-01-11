@@ -1,8 +1,27 @@
 import app from "./app.js";
 import { config } from "./config.js";
+import { authenticate } from "./keycloak/client.js";
+import { createDefaultRealm } from "./keycloak/realm-setup.js";
 
 // Get port from config
 const port = config.server.port;
+
+/**
+ * Initializes the default realm on startup
+ */
+async function initializeDefaultRealm(): Promise<void> {
+	try {
+		console.log("→ Initializing default realm...");
+		await authenticate();
+		await createDefaultRealm();
+		console.log("✓ Default realm initialized");
+	} catch (error) {
+		console.error("✗ Failed to initialize default realm:", error);
+		throw error;
+	}
+}
+
+await initializeDefaultRealm();
 
 console.log(`
 ╔════════════════════════════════════════════════════════════╗
