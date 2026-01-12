@@ -1,18 +1,38 @@
 import { CognitoIdentityProviderClient } from "@aws-sdk/client-cognito-identity-provider";
 import KcAdminClient from "@keycloak/keycloak-admin-client";
 import app from "../src/app.js";
+import { createRealm } from "../src/keycloak/realm-setup.js";
 
 const COGNITO_URL = "http://localhost:9000";
 const KEYCLOAK_URL = process.env.KEYCLOAK_URL || "http://localhost:8080";
-const KEYCLOAK_REALM = process.env.KEYCLOAK_REALM || "cognito";
-
 export const USER_POOL_ID = process.env.USER_POOL_ID || "local_pool";
 
 let server: ReturnType<typeof Bun.serve> | null = null;
 let cognitoClient: CognitoIdentityProviderClient | null = null;
+let realmInitialized = false;
+
+/**
+ * Initializes the default realm for tests
+ */
+async function initializeDefaultRealm(): Promise<void> {
+	if (realmInitialized) return;
+
+	try {
+		console.log(`→ Initializing default realm '${USER_POOL_ID}' for tests...`);
+		await createRealm(USER_POOL_ID);
+		console.log("✓ Default realm initialized");
+		realmInitialized = true;
+	} catch (error) {
+		console.error("✗ Failed to initialize default realm:", error);
+		throw error;
+	}
+}
 
 async function startServer(): Promise<void> {
 	if (server) return;
+
+	// Initialize the default realm before starting the server
+	await initializeDefaultRealm();
 
 	server = Bun.serve({
 		fetch: app.fetch,
@@ -92,7 +112,7 @@ export function getClient(): CognitoIdentityProviderClient {
 export async function getKeycloakAdminClient(): Promise<KcAdminClient> {
 	const kcAdmin = new KcAdminClient({
 		baseUrl: KEYCLOAK_URL,
-		realmName: KEYCLOAK_REALM,
+		realmName: USER_POOL_ID,
 	});
 
 	// Authenticate against master realm
@@ -105,7 +125,7 @@ export async function getKeycloakAdminClient(): Promise<KcAdminClient> {
 	});
 
 	// Switch back to target realm
-	kcAdmin.setConfig({ realmName: KEYCLOAK_REALM });
+	kcAdmin.setConfig({ realmName: USER_POOL_ID });
 
 	return kcAdmin;
 }

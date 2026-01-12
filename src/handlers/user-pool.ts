@@ -4,8 +4,7 @@ import type {
 	SchemaAttributeType,
 } from "@aws-sdk/client-cognito-identity-provider";
 import { config } from "../config";
-import { authenticate, keycloakClient } from "../keycloak/client";
-import { CognitoException } from "./index";
+import { getClientForUserPool } from "../keycloak/client";
 
 // Helper to create standard string schema attributes
 const stringAttr = (
@@ -73,20 +72,14 @@ export const SCHEMA_ATTRIBUTES: SchemaAttributeType[] = [
 export async function describeUserPool(
 	request: DescribeUserPoolRequest,
 ): Promise<DescribeUserPoolResponse> {
-	if (request.UserPoolId !== config.userPool.id) {
-		throw new CognitoException(
-			"ResourceNotFoundException",
-			`User pool ${request.UserPoolId} does not exist.`,
-			400,
-		);
-	}
+	const client = await getClientForUserPool(request);
+	const userPoolId = request.UserPoolId!; // getClientForUserPool ensures this is present
 
-	await authenticate();
-	const userCount = await keycloakClient.users.count();
+	const userCount = await client.users.count();
 
 	return {
 		UserPool: {
-			Id: config.userPool.id,
+			Id: userPoolId,
 			Name: config.userPool.name,
 			Policies: {
 				PasswordPolicy: {
@@ -119,7 +112,7 @@ export async function describeUserPool(
 				UnusedAccountValidityDays: 7,
 			},
 			UsernameConfiguration: { CaseSensitive: false },
-			Arn: `arn:aws:cognito-idp:local_region:userpool/${config.userPool.id}`,
+			Arn: `arn:aws:cognito-idp:local_region:userpool/${userPoolId}`,
 			AccountRecoverySetting: {
 				RecoveryMechanisms: [
 					{ Priority: 1, Name: "verified_email" },
