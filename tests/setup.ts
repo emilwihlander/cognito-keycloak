@@ -1,7 +1,7 @@
 import { CognitoIdentityProviderClient } from "@aws-sdk/client-cognito-identity-provider";
 import KcAdminClient from "@keycloak/keycloak-admin-client";
 import app from "../src/app.js";
-import { ensureRealmExists } from "../src/keycloak/realm-setup.js";
+import { createRealm } from "../src/keycloak/realm-setup.js";
 
 const COGNITO_URL = "http://localhost:9000";
 const KEYCLOAK_URL = process.env.KEYCLOAK_URL || "http://localhost:8080";
@@ -19,7 +19,7 @@ async function initializeDefaultRealm(): Promise<void> {
 
 	try {
 		console.log(`→ Initializing default realm '${USER_POOL_ID}' for tests...`);
-		await ensureRealmExists(USER_POOL_ID);
+		await createRealm(USER_POOL_ID);
 		console.log("✓ Default realm initialized");
 		realmInitialized = true;
 	} catch (error) {

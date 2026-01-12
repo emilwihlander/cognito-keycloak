@@ -2,60 +2,10 @@ import KcAdminClient from "@keycloak/keycloak-admin-client";
 import { config } from "../config";
 import { CognitoException } from "../handlers/index.js";
 
-// Default client using the configured realm (for backward compatibility)
-export const keycloakClient = new KcAdminClient({
-	baseUrl: config.keycloak.baseUrl,
-	realmName: config.userPool.id,
-});
-
-// Track authentication state
-let isAuthenticated = false;
-
-/**
- * Authenticates the admin client against the master realm
- * This must be called before any realm operations
- */
-export async function authenticate(): Promise<void> {
-	if (isAuthenticated) {
-		return;
-	}
-
-	// Authenticate against the master realm where the admin user exists
-	keycloakClient.setConfig({ realmName: "master" });
-
-	await keycloakClient.auth({
-		grantType: "password",
-		clientId: config.keycloak.clientId,
-		username: config.keycloak.adminUsername,
-		password: config.keycloak.adminPassword,
-	});
-
-	isAuthenticated = true;
-
-	// Switch back to the default realm for subsequent operations
-	keycloakClient.setConfig({ realmName: config.userPool.id });
-}
-
-/**
- * Gets a Keycloak admin client configured for a specific realm
- * The client will be authenticated if not already authenticated
- * Note: The client shares authentication state, so authenticating once
- * allows access to all realms
- */
-export async function getClientForRealm(
+async function authenticate(
+	client: KcAdminClient,
 	realmName: string,
-): Promise<KcAdminClient> {
-	// Ensure we're authenticated first
-	await authenticate();
-
-	// Create a new client instance for the specific realm
-	const client = new KcAdminClient({
-		baseUrl: config.keycloak.baseUrl,
-		realmName,
-	});
-
-	// Authenticate this client (it will reuse the same credentials)
-	// We authenticate against master but then switch to the target realm
+): Promise<void> {
 	client.setConfig({ realmName: "master" });
 	await client.auth({
 		grantType: "password",
@@ -63,9 +13,31 @@ export async function getClientForRealm(
 		username: config.keycloak.adminUsername,
 		password: config.keycloak.adminPassword,
 	});
-
-	// Switch to the target realm
 	client.setConfig({ realmName });
+}
+
+const clients: Record<string, KcAdminClient> = {};
+
+/**
+ * Gets a Keycloak admin client configured for a specific realm
+ * The client will be authenticated if not already authenticated
+ * Note: The client shares authentication state, so authenticating once
+ * allows access to all realms
+ */
+async function getClientForRealm(realmName: string): Promise<KcAdminClient> {
+	if (clients[realmName]) {
+		return clients[realmName];
+	}
+
+	// Create a new client instance for the specific realm
+	const client = new KcAdminClient({
+		baseUrl: config.keycloak.baseUrl,
+		realmName,
+	});
+
+	clients[realmName] = client;
+
+	await authenticate(client, realmName);
 
 	return client;
 }

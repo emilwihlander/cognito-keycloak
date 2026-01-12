@@ -105,13 +105,8 @@ async function realmExists(
 	adminClient: KcAdminClient,
 	realmName: string,
 ): Promise<boolean> {
-	try {
-		// List all realms and check if the target realm is in the list
-		const realms = await adminClient.realms.find();
-		return realms.some((realm) => realm.realm === realmName);
-	} catch {
-		return false;
-	}
+	const realms = await adminClient.realms.find();
+	return realms.some((realm) => realm.realm === realmName);
 }
 
 /**
@@ -167,23 +162,9 @@ export async function createRealm(realmName: string): Promise<void> {
 }
 
 /**
- * Ensures a realm exists, creating it if it doesn't
- */
-export async function ensureRealmExists(realmName: string): Promise<void> {
-	const adminClient = await getAdminClient();
-
-	if (await realmExists(adminClient, realmName)) {
-		console.log(`Realm ${realmName} already exists`);
-		return;
-	}
-
-	await createRealm(realmName);
-}
-
-/**
  * Creates the default realm based on configuration
  */
 export async function createDefaultRealm(): Promise<void> {
 	const defaultRealmName = config.userPool.id;
-	await ensureRealmExists(defaultRealmName);
+	await createRealm(defaultRealmName);
 }
