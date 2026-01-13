@@ -12,7 +12,7 @@ export async function authenticate(): Promise<void> {
 
 	await keycloakClient.auth({
 		grantType: "password",
-		clientId: config.keycloak.clientId,
+		clientId: "admin-cli",
 		username: config.keycloak.adminUsername,
 		password: config.keycloak.adminPassword,
 	});

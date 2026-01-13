@@ -12,7 +12,7 @@ export const config = {
 
 	// Cognito wrapper configuration
 	server: {
-		port: parseInt(process.env.PORT || "3000", 10),
+		port: parseInt(process.env.PORT || "4566", 10),
 	},
 
 	// Hardcoded user pool for local development

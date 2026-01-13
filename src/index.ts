@@ -15,8 +15,8 @@ console.log(`
 `);
 
 // Export configuration for Bun's standalone executable feature
-// When compiled with `bun build --compile`, Bun will auto-start a server
-// using this export if it detects a `fetch` method
+// When running with `bun`, Bun will auto-start a server
+// using this export if it detects a `port` and `fetch` method
 export default {
 	port,
 	fetch: app.fetch,
