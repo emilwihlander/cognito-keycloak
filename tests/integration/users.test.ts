@@ -107,7 +107,7 @@ describe("Cognito User Management", () => {
 				}),
 			);
 
-			// Try to create duplicate
+			// Try to create duplicate - should throw UsernameExistsException
 			await expect(
 				client.send(
 					new AdminCreateUserCommand({
@@ -118,7 +118,12 @@ describe("Cognito User Management", () => {
 						],
 					}),
 				),
-			).rejects.toThrow();
+			).rejects.toMatchObject({
+				name: "UsernameExistsException",
+				message: expect.stringContaining(
+					"An account with the given username already exists.",
+				),
+			});
 		});
 	});
 
