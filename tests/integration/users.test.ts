@@ -274,6 +274,78 @@ describe("Cognito User Management", () => {
 				),
 			).resolves.toBeDefined();
 		});
+
+		it("should preserve user attributes when setting password", async () => {
+			const username = `testuser-setpwd-attr-${Date.now()}`;
+			createdUsers.push(username);
+
+			const email = `${username}@example.com`;
+			const firstName = "John";
+			const lastName = "Doe";
+
+			// Create user with email and firstName attributes
+			await client.send(
+				new AdminCreateUserCommand({
+					UserPoolId: USER_POOL_ID,
+					Username: username,
+					UserAttributes: [
+						{ Name: "email", Value: email },
+						{ Name: "given_name", Value: firstName },
+						{ Name: "family_name", Value: lastName },
+					],
+				}),
+			);
+
+			// Verify attributes exist before setting password
+			let response = await client.send(
+				new AdminGetUserCommand({
+					UserPoolId: USER_POOL_ID,
+					Username: username,
+				}),
+			);
+
+			let emailAttr = response.UserAttributes?.find((a) => a.Name === "email");
+			let firstNameAttr = response.UserAttributes?.find(
+				(a) => a.Name === "given_name",
+			);
+			let lastNameAttr = response.UserAttributes?.find(
+				(a) => a.Name === "family_name",
+			);
+
+			expect(emailAttr?.Value).toBe(email);
+			expect(firstNameAttr?.Value).toBe(firstName);
+			expect(lastNameAttr?.Value).toBe(lastName);
+
+			// Set password
+			await client.send(
+				new AdminSetUserPasswordCommand({
+					UserPoolId: USER_POOL_ID,
+					Username: username,
+					Password: "NewPermanentPass123!",
+					Permanent: true,
+				}),
+			);
+
+			// Verify attributes are still present after setting password
+			response = await client.send(
+				new AdminGetUserCommand({
+					UserPoolId: USER_POOL_ID,
+					Username: username,
+				}),
+			);
+
+			emailAttr = response.UserAttributes?.find((a) => a.Name === "email");
+			firstNameAttr = response.UserAttributes?.find(
+				(a) => a.Name === "given_name",
+			);
+			lastNameAttr = response.UserAttributes?.find(
+				(a) => a.Name === "family_name",
+			);
+
+			expect(emailAttr?.Value).toBe(email);
+			expect(firstNameAttr?.Value).toBe(firstName);
+			expect(lastNameAttr?.Value).toBe(lastName);
+		});
 	});
 
 	describe("AdminEnableUser / AdminDisableUser", () => {

@@ -57,7 +57,7 @@ async function adminCreateUser(
 
 	// Build Keycloak user payload
 	const now = new Date().toISOString();
-	const keycloakPayload = {
+	const result = await keycloakClient.users.create({
 		username: Username,
 		email,
 		firstName,
@@ -68,6 +68,7 @@ async function adminCreateUser(
 			...cognitoToKeycloakAttributes(UserAttributes),
 			lastModifiedDate: [now],
 		},
+		requiredActions: ["UPDATE_PASSWORD"],
 		credentials: TemporaryPassword
 			? [
 					{
@@ -77,9 +78,7 @@ async function adminCreateUser(
 					},
 				]
 			: undefined,
-	};
-
-	const result = await keycloakClient.users.create(keycloakPayload);
+	});
 
 	// Validate that we got a valid user ID back from Keycloak
 	if (!result.id) {
@@ -212,10 +211,13 @@ async function adminSetUserPassword(
 		},
 	});
 
+	const updatedUser = await getRequiredUser(request.Username);
+
 	// Update lastModifiedDate
 	await keycloakClient.users.update(
 		{ id: user.id! },
 		{
+			...updatedUser,
 			attributes: {
 				...user.attributes,
 				lastModifiedDate: [new Date().toISOString()],
