@@ -71,6 +71,8 @@ async function adminCreateUser(
 				...cognitoToKeycloakAttributes(UserAttributes),
 				lastModifiedDate: [now],
 			},
+			// Always set UPDATE_PASSWORD required action to map to Cognito's FORCE_CHANGE_PASSWORD
+			// status, ensuring users must set their own password on first login (security best practice).
 			requiredActions: ["UPDATE_PASSWORD"],
 			credentials: TemporaryPassword
 				? [
@@ -84,7 +86,6 @@ async function adminCreateUser(
 		});
 
 		// Fetch the created user to return full details
-		// Keycloak will have set requiredActions: ["UPDATE_PASSWORD"] if temporary password was used
 		const createdUser = await keycloakClient.users.findOne({ id: result.id });
 
 		return {
@@ -223,7 +224,7 @@ async function adminSetUserPassword(
 		{
 			...updatedUser,
 			attributes: {
-				...user.attributes,
+				...updatedUser.attributes,
 				lastModifiedDate: [new Date().toISOString()],
 			},
 		},
