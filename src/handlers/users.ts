@@ -24,6 +24,7 @@ import type {
 	ListUsersResponse,
 	UserType,
 } from "@aws-sdk/client-cognito-identity-provider";
+import { NetworkError } from "@keycloak/keycloak-admin-client";
 import type UserRepresentation from "@keycloak/keycloak-admin-client/lib/defs/userRepresentation.js";
 import { authenticate, keycloakClient } from "../keycloak/client.js";
 import { CognitoException } from "./index.js";
@@ -57,45 +58,48 @@ async function adminCreateUser(
 
 	// Build Keycloak user payload
 	const now = new Date().toISOString();
-	const result = await keycloakClient.users.create({
-		username: Username,
-		email,
-		firstName,
-		lastName,
-		enabled: true,
-		emailVerified: emailVerifiedAttr === "true" || MessageAction === "SUPPRESS",
-		attributes: {
-			...cognitoToKeycloakAttributes(UserAttributes),
-			lastModifiedDate: [now],
-		},
-		requiredActions: ["UPDATE_PASSWORD"],
-		credentials: TemporaryPassword
-			? [
-					{
-						type: "password",
-						value: TemporaryPassword,
-						temporary: true,
-					},
-				]
-			: undefined,
-	});
+	try {
+		const result = await keycloakClient.users.create({
+			username: Username,
+			email,
+			firstName,
+			lastName,
+			enabled: true,
+			emailVerified:
+				emailVerifiedAttr === "true" || MessageAction === "SUPPRESS",
+			attributes: {
+				...cognitoToKeycloakAttributes(UserAttributes),
+				lastModifiedDate: [now],
+			},
+			requiredActions: ["UPDATE_PASSWORD"],
+			credentials: TemporaryPassword
+				? [
+						{
+							type: "password",
+							value: TemporaryPassword,
+							temporary: true,
+						},
+					]
+				: undefined,
+		});
 
-	// Validate that we got a valid user ID back from Keycloak
-	if (!result.id) {
-		throw new CognitoException(
-			"InternalErrorException",
-			"Failed to create user: no user ID returned from identity provider",
-			500,
-		);
+		// Fetch the created user to return full details
+		// Keycloak will have set requiredActions: ["UPDATE_PASSWORD"] if temporary password was used
+		const createdUser = await keycloakClient.users.findOne({ id: result.id });
+
+		return {
+			User: keycloakToCognitoUser(createdUser!),
+		};
+	} catch (error) {
+		if (error instanceof NetworkError && error.response.status === 409) {
+			throw new CognitoException(
+				"UsernameExistsException",
+				"An account with the given username already exists.",
+				400,
+			);
+		}
+		throw error;
 	}
-
-	// Fetch the created user to return full details
-	// Keycloak will have set requiredActions: ["UPDATE_PASSWORD"] if temporary password was used
-	const createdUser = await keycloakClient.users.findOne({ id: result.id });
-
-	return {
-		User: keycloakToCognitoUser(createdUser!),
-	};
 }
 
 async function adminDeleteUser(request: AdminDeleteUserRequest): Promise<void> {
