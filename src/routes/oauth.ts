@@ -75,33 +75,48 @@ async function proxyToKeycloak(
 // ============ OpenID Connect Discovery ============
 
 /**
- * Copied from an actual Cognito IDP. Base URLs are replaced with the local base URL.
+ * Derives the base URL from the incoming request. Falls back to localhost.
  */
-const BASE_URL = `http://localhost:${config.server.port}`;
-const OPENID_CONFIGURATION = {
-	authorization_endpoint: `${BASE_URL}/oauth2/authorize`,
-	end_session_endpoint: `${BASE_URL}/logout`,
-	id_token_signing_alg_values_supported: ["RS256"],
-	issuer: BASE_URL,
-	jwks_uri: `${BASE_URL}/.well-known/jwks.json`,
-	response_types_supported: ["code", "token"],
-	revocation_endpoint: `${BASE_URL}/oauth2/revoke`,
-	scopes_supported: ["openid", "email", "phone", "profile"],
-	subject_types_supported: ["public"],
-	token_endpoint: `${BASE_URL}/oauth2/token`,
-	token_endpoint_auth_methods_supported: [
-		"client_secret_basic",
-		"client_secret_post",
-	],
-	userinfo_endpoint: `${BASE_URL}/oauth2/userInfo`,
-} as const;
+function getBaseUrl(request: Request): string {
+	// Derive from request
+	const url = new URL(request.url);
+	const protocol = url.protocol || "http:";
+	const host = url.host || `localhost:${config.server.port}`;
+	return `${protocol}//${host}`;
+}
+
+/**
+ * Generates OpenID Connect Discovery configuration with the given base URL.
+ * Copied from an actual Cognito IDP. Base URLs are replaced with the derived base URL.
+ */
+function getOpenIdConfiguration(baseUrl: string) {
+	return {
+		authorization_endpoint: `${baseUrl}/oauth2/authorize`,
+		end_session_endpoint: `${baseUrl}/logout`,
+		id_token_signing_alg_values_supported: ["RS256"],
+		issuer: baseUrl,
+		jwks_uri: `${baseUrl}/.well-known/jwks.json`,
+		response_types_supported: ["code", "token"],
+		revocation_endpoint: `${baseUrl}/oauth2/revoke`,
+		scopes_supported: ["openid", "email", "phone", "profile"],
+		subject_types_supported: ["public"],
+		token_endpoint: `${baseUrl}/oauth2/token`,
+		token_endpoint_auth_methods_supported: [
+			"client_secret_basic",
+			"client_secret_post",
+		],
+		userinfo_endpoint: `${baseUrl}/oauth2/userInfo`,
+	} as const;
+}
 
 /**
  * OpenID Connect Discovery document
  * Proxies to Keycloak but rewrites URLs to point to our server
  */
 oauth.get("/.well-known/openid-configuration", async (c) => {
-	return c.json(OPENID_CONFIGURATION);
+	const baseUrl = getBaseUrl(c.req.raw);
+	const configuration = getOpenIdConfiguration(baseUrl);
+	return c.json(configuration);
 });
 
 /**
