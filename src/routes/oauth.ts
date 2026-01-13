@@ -75,54 +75,33 @@ async function proxyToKeycloak(
 // ============ OpenID Connect Discovery ============
 
 /**
+ * Copied from an actual Cognito IDP. Base URLs are replaced with the local base URL.
+ */
+const BASE_URL = `http://localhost:${config.server.port}`;
+const OPENID_CONFIGURATION = {
+	authorization_endpoint: `${BASE_URL}/oauth2/authorize`,
+	end_session_endpoint: `${BASE_URL}/logout`,
+	id_token_signing_alg_values_supported: ["RS256"],
+	issuer: BASE_URL,
+	jwks_uri: `${BASE_URL}/.well-known/jwks.json`,
+	response_types_supported: ["code", "token"],
+	revocation_endpoint: `${BASE_URL}/oauth2/revoke`,
+	scopes_supported: ["openid", "email", "phone", "profile"],
+	subject_types_supported: ["public"],
+	token_endpoint: `${BASE_URL}/oauth2/token`,
+	token_endpoint_auth_methods_supported: [
+		"client_secret_basic",
+		"client_secret_post",
+	],
+	userinfo_endpoint: `${BASE_URL}/oauth2/userInfo`,
+} as const;
+
+/**
  * OpenID Connect Discovery document
  * Proxies to Keycloak but rewrites URLs to point to our server
  */
 oauth.get("/.well-known/openid-configuration", async (c) => {
-	const keycloakPath = `/realms/${realm}/.well-known/openid-configuration`;
-
-	const response = await fetch(`${keycloakBaseUrl}${keycloakPath}`);
-	const config = await response.json();
-
-	// Get our base URL from the request
-	const proto = c.req.header("x-forwarded-proto") || "http";
-	const host = c.req.header("host") || "localhost:3000";
-	const baseUrl = `${proto}://${host}`;
-
-	// Rewrite all URLs to point to our server
-	const rewriteUrl = (url: string): string => {
-		if (typeof url !== "string") return url;
-		return url.replace(
-			`${keycloakBaseUrl}/realms/${realm}/protocol/openid-connect`,
-			`${baseUrl}/oauth2`,
-		);
-	};
-
-	// Rewrite known URL fields
-	const urlFields = [
-		"issuer",
-		"authorization_endpoint",
-		"token_endpoint",
-		"userinfo_endpoint",
-		"end_session_endpoint",
-		"jwks_uri",
-		"revocation_endpoint",
-		"introspection_endpoint",
-		"device_authorization_endpoint",
-		"registration_endpoint",
-		"pushed_authorization_request_endpoint",
-	];
-
-	for (const field of urlFields) {
-		if (config[field]) {
-			config[field] = rewriteUrl(config[field]);
-		}
-	}
-
-	// Fix issuer to be the realm URL
-	config.issuer = `${baseUrl}`;
-
-	return c.json(config);
+	return c.json(OPENID_CONFIGURATION);
 });
 
 /**
@@ -149,6 +128,14 @@ oauth.get("/oauth2/authorize", async (c) => {
 		: keycloakPath;
 
 	return proxyToKeycloak(fullPath, c.req.raw);
+});
+
+/**
+ * Together with the authorization endpoint, there are multiple resources such as css, js, and images
+ * hosted under /resources/ that should all be proxied to Keycloak.
+ */
+oauth.get("/resources/*", async (c) => {
+	return proxyToKeycloak(c.req.path, c.req.raw);
 });
 
 /**
