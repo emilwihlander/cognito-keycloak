@@ -22,7 +22,7 @@
 			"protocol": "openid-connect",
 			"standardFlowEnabled": true,
 			"implicitFlowEnabled": false,
-			"fullScopeAllowed": true,
+			"fullScopeAllowed": false,
 			"protocolMappers": [
 				{
 					"name": "cognito-groups-mapper",
