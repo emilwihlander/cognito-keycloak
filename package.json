@@ -2,6 +2,7 @@
 	"name": "cognito-keycloak",
 	"version": "1.0.0",
 	"description": "AWS Cognito wrapper for Keycloak - local development tool",
+	"license": "Apache-2.0",
 	"type": "module",
 	"scripts": {
 		"dev": "bun --watch src/index.ts",

@@ -229,4 +229,8 @@ docker run -p 4566:4566 -p 8080:8080 cognito-keycloak
 
 ## License
 
-MIT
+Apache License 2.0
+
+This project is licensed under the Apache License, Version 2.0. See the [LICENSE](LICENSE) file for details.
+
+This project includes Keycloak, which is also distributed under the Apache License, Version 2.0. See the [NOTICE](NOTICE) file for attribution information.
