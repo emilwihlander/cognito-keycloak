@@ -5,10 +5,14 @@ Cognito-compatible APIs backed by Keycloak.
 
 ## Overview
 
-This project allows you to develop and test applications that use AWS Cognito
-without needing an actual AWS account. It translates Cognito API calls to
-Keycloak's Admin REST API, while OAuth 2.0/OIDC endpoints are proxied directly
-to Keycloak.
+This project exists to support local development of web applications that use
+AWS Cognito as an Identity Provider (IDP).
+
+By using Keycloak behind the scenes, this emulator provides a full-featured
+identity provider that handles OAuth 2.0/OIDC flows, user authentication, and
+session management just like the real Cognito service. It translates Cognito API
+calls to Keycloak's Admin REST API, while OAuth 2.0/OIDC endpoints are proxied
+directly to Keycloak.
 
 **Key feature:** Distributed as a single Docker image containing both Keycloak
 and the Cognito API wrapper — no docker-compose or multiple containers needed.
@@ -231,6 +235,8 @@ docker run -p 4566:4566 -p 8080:8080 cognito-keycloak
 
 Apache License 2.0
 
-This project is licensed under the Apache License, Version 2.0. See the [LICENSE](LICENSE) file for details.
+This project is licensed under the Apache License, Version 2.0. See the
+[LICENSE](LICENSE) file for details.
 
-This project includes Keycloak, which is also distributed under the Apache License, Version 2.0. See the [NOTICE](NOTICE) file for attribution information.
+This project includes Keycloak, which is also distributed under the Apache
+License, Version 2.0. See the [NOTICE](NOTICE) file for attribution information.
