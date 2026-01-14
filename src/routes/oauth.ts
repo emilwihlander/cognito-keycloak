@@ -142,15 +142,8 @@ oauth.get("/oauth2/authorize", async (c) => {
 		? `${keycloakPath}?${queryString}`
 		: keycloakPath;
 
-	return proxyToKeycloak(fullPath, c.req.raw);
-});
-
-/**
- * Together with the authorization endpoint, there are multiple resources such as css, js, and images
- * hosted under /resources/ that should all be proxied to Keycloak.
- */
-oauth.get("/resources/*", async (c) => {
-	return proxyToKeycloak(c.req.path, c.req.raw);
+	const redirectUrl = `${keycloakBaseUrl}${fullPath}`;
+	return c.redirect(redirectUrl);
 });
 
 /**
