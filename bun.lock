@@ -5,7 +5,7 @@
     "": {
       "name": "cognito-keycloak",
       "dependencies": {
-        "@keycloak/keycloak-admin-client": "^26.4.7",
+        "@keycloak/keycloak-admin-client": "^26.5.1",
         "hono": "^4.6.0",
       },
       "devDependencies": {
@@ -93,7 +93,7 @@
 
     "@biomejs/cli-win32-x64": ["@biomejs/cli-win32-x64@2.3.11", "", { "os": "win32", "cpu": "x64" }, "sha512-43VrG813EW+b5+YbDbz31uUsheX+qFKCpXeY9kfdAx+ww3naKxeVkTD9zLIWxUPfJquANMHrmW3wbe/037G0Qg=="],
 
-    "@keycloak/keycloak-admin-client": ["@keycloak/keycloak-admin-client@26.5.0", "", { "dependencies": { "camelize-ts": "^3.0.0", "url-template": "^3.1.1" } }, "sha512-sT7ASGHhgogkpjRYNoN2hECJ60JQ9En6kbe0Tz3im3HUcr/CO+mJYxlcG8DdgfBApg82ECEnnRxrWe5YM0oKXQ=="],
+    "@keycloak/keycloak-admin-client": ["@keycloak/keycloak-admin-client@26.5.1", "", { "dependencies": { "camelize-ts": "^3.0.0", "url-template": "^3.1.1" } }, "sha512-9c1N/5UZK0zIz5CIFnjrlR2Qbb/CJervmPEMi04hF87VWmAKivMcsI68DxWSTrkht8Zd9z9lgWxwieDL5QP73g=="],
 
     "@smithy/abort-controller": ["@smithy/abort-controller@4.2.7", "", { "dependencies": { "@smithy/types": "^4.11.0", "tslib": "^2.6.2" } }, "sha512-rzMY6CaKx2qxrbYbqjXWS0plqEy7LOdKHS0bg4ixJ6aoGDPNUcLWk/FRNuCILh7GKLG9TFUXYYeQQldMBBwuyw=="],
 
