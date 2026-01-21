@@ -471,6 +471,82 @@ describe("Cognito User Management", () => {
 			);
 			expect(response.Enabled).toBe(true);
 		});
+
+		it("should preserve user attributes when disabling and enabling", async () => {
+			const username = `testuser-toggle-attr-${Date.now()}`;
+			createdUsers.push(username);
+
+			const email = `${username}@example.com`;
+			const firstName = "Toggle";
+			const lastName = "Test";
+
+			// Create user with attributes
+			await client.send(
+				new AdminCreateUserCommand({
+					UserPoolId: USER_POOL_ID,
+					Username: username,
+					UserAttributes: [
+						{ Name: "email", Value: email },
+						{ Name: "given_name", Value: firstName },
+						{ Name: "family_name", Value: lastName },
+					],
+				}),
+			);
+
+			// Disable user
+			await client.send(
+				new AdminDisableUserCommand({
+					UserPoolId: USER_POOL_ID,
+					Username: username,
+				}),
+			);
+
+			// Verify attributes are preserved after disable
+			let response = await client.send(
+				new AdminGetUserCommand({
+					UserPoolId: USER_POOL_ID,
+					Username: username,
+				}),
+			);
+
+			expect(response.Enabled).toBe(false);
+			expect(
+				response.UserAttributes?.find((a) => a.Name === "email")?.Value,
+			).toBe(email);
+			expect(
+				response.UserAttributes?.find((a) => a.Name === "given_name")?.Value,
+			).toBe(firstName);
+			expect(
+				response.UserAttributes?.find((a) => a.Name === "family_name")?.Value,
+			).toBe(lastName);
+
+			// Enable user
+			await client.send(
+				new AdminEnableUserCommand({
+					UserPoolId: USER_POOL_ID,
+					Username: username,
+				}),
+			);
+
+			// Verify attributes are preserved after enable
+			response = await client.send(
+				new AdminGetUserCommand({
+					UserPoolId: USER_POOL_ID,
+					Username: username,
+				}),
+			);
+
+			expect(response.Enabled).toBe(true);
+			expect(
+				response.UserAttributes?.find((a) => a.Name === "email")?.Value,
+			).toBe(email);
+			expect(
+				response.UserAttributes?.find((a) => a.Name === "given_name")?.Value,
+			).toBe(firstName);
+			expect(
+				response.UserAttributes?.find((a) => a.Name === "family_name")?.Value,
+			).toBe(lastName);
+		});
 	});
 
 	describe("AdminDeleteUser", () => {
@@ -755,6 +831,59 @@ describe("Cognito User Management", () => {
 				),
 			).rejects.toThrow();
 		});
+
+		it("should preserve user attributes when confirming signup", async () => {
+			const username = `testuser-confirm-attr-${Date.now()}`;
+			createdUsers.push(username);
+
+			const email = `${username}@example.com`;
+			const firstName = "Confirm";
+			const lastName = "Test";
+
+			// Create user with attributes
+			await client.send(
+				new AdminCreateUserCommand({
+					UserPoolId: USER_POOL_ID,
+					Username: username,
+					UserAttributes: [
+						{ Name: "email", Value: email },
+						{ Name: "given_name", Value: firstName },
+						{ Name: "family_name", Value: lastName },
+						{ Name: "email_verified", Value: "false" },
+					],
+				}),
+			);
+
+			// Confirm signup
+			await client.send(
+				new AdminConfirmSignUpCommand({
+					UserPoolId: USER_POOL_ID,
+					Username: username,
+				}),
+			);
+
+			// Verify attributes are preserved after confirm
+			const response = await client.send(
+				new AdminGetUserCommand({
+					UserPoolId: USER_POOL_ID,
+					Username: username,
+				}),
+			);
+
+			expect(
+				response.UserAttributes?.find((a) => a.Name === "email_verified")
+					?.Value,
+			).toBe("true");
+			expect(
+				response.UserAttributes?.find((a) => a.Name === "email")?.Value,
+			).toBe(email);
+			expect(
+				response.UserAttributes?.find((a) => a.Name === "given_name")?.Value,
+			).toBe(firstName);
+			expect(
+				response.UserAttributes?.find((a) => a.Name === "family_name")?.Value,
+			).toBe(lastName);
+		});
 	});
 
 	describe("AdminResetUserPassword", () => {
@@ -822,6 +951,66 @@ describe("Cognito User Management", () => {
 					}),
 				),
 			).rejects.toThrow();
+		});
+
+		it("should preserve user attributes when resetting password", async () => {
+			const username = `testuser-reset-attr-${Date.now()}`;
+			createdUsers.push(username);
+
+			const email = `${username}@example.com`;
+			const firstName = "Reset";
+			const lastName = "Test";
+
+			// Create user with attributes and set permanent password
+			await client.send(
+				new AdminCreateUserCommand({
+					UserPoolId: USER_POOL_ID,
+					Username: username,
+					MessageAction: "SUPPRESS",
+					UserAttributes: [
+						{ Name: "email", Value: email },
+						{ Name: "given_name", Value: firstName },
+						{ Name: "family_name", Value: lastName },
+						{ Name: "email_verified", Value: "true" },
+					],
+				}),
+			);
+
+			await client.send(
+				new AdminSetUserPasswordCommand({
+					UserPoolId: USER_POOL_ID,
+					Username: username,
+					Password: "PermanentPass123!",
+					Permanent: true,
+				}),
+			);
+
+			// Reset password
+			await client.send(
+				new AdminResetUserPasswordCommand({
+					UserPoolId: USER_POOL_ID,
+					Username: username,
+				}),
+			);
+
+			// Verify attributes are preserved after password reset
+			const response = await client.send(
+				new AdminGetUserCommand({
+					UserPoolId: USER_POOL_ID,
+					Username: username,
+				}),
+			);
+
+			expect(response.UserStatus).toBe("FORCE_CHANGE_PASSWORD");
+			expect(
+				response.UserAttributes?.find((a) => a.Name === "email")?.Value,
+			).toBe(email);
+			expect(
+				response.UserAttributes?.find((a) => a.Name === "given_name")?.Value,
+			).toBe(firstName);
+			expect(
+				response.UserAttributes?.find((a) => a.Name === "family_name")?.Value,
+			).toBe(lastName);
 		});
 	});
 

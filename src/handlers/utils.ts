@@ -137,11 +137,26 @@ export function keycloakToCognitoAttributes(
 	}
 
 	// Map custom attributes from Keycloak
+	// Skip standard Cognito attributes (already mapped above) and internal metadata attributes
+	const standardAndInternalAttributes = new Set([
+		// Keycloak top-level fields already mapped above
+		"email",
+		"firstName",
+		"lastName",
+		// Standard Cognito attributes stored in user.attributes but mapped from Keycloak fields
+		"email_verified",
+		"given_name",
+		"family_name",
+		// Internal metadata attributes (not part of Cognito user attributes)
+		"lastModifiedDate",
+		"createdDate",
+	]);
+
 	if (user.attributes) {
 		for (const [key, values] of Object.entries(user.attributes)) {
 			if (values && values.length > 0) {
-				// Skip attributes we've already mapped
-				if (!["email", "firstName", "lastName"].includes(key)) {
+				// Skip standard and internal attributes - only process custom attributes
+				if (!standardAndInternalAttributes.has(key)) {
 					attributes.push({ Name: `custom:${key}`, Value: values[0] });
 				}
 			}

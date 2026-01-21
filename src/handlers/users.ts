@@ -244,6 +244,7 @@ async function adminEnableUser(
 	await keycloakClient.users.update(
 		{ id: user.id! },
 		{
+			...user,
 			enabled: true,
 			attributes: {
 				...user.attributes,
@@ -263,6 +264,7 @@ async function adminDisableUser(
 	await keycloakClient.users.update(
 		{ id: user.id! },
 		{
+			...user,
 			enabled: false,
 			attributes: {
 				...user.attributes,
@@ -408,6 +410,7 @@ async function adminConfirmSignUp(
 	await keycloakClient.users.update(
 		{ id: user.id! },
 		{
+			...user,
 			emailVerified: true,
 			requiredActions,
 			attributes: {
@@ -438,6 +441,7 @@ async function adminResetUserPassword(
 	await keycloakClient.users.update(
 		{ id: user.id! },
 		{
+			...user,
 			requiredActions,
 			attributes: {
 				...user.attributes,
