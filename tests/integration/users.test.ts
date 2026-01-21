@@ -77,6 +77,54 @@ describe("Cognito User Management", () => {
 			expect(emailVerifiedAttr?.Value).toBe("true");
 		});
 
+		it("should create and retrieve a user with custom attributes", async () => {
+			const username = `testuser-custom-${Date.now()}`;
+			createdUsers.push(username);
+
+			const response = await client.send(
+				new AdminCreateUserCommand({
+					UserPoolId: USER_POOL_ID,
+					Username: username,
+					UserAttributes: [
+						{ Name: "email", Value: `${username}@example.com` },
+						{ Name: "custom:department", Value: "Engineering" },
+						{ Name: "custom:employeeId", Value: "12345" },
+					],
+				}),
+			);
+
+			expect(response.User).toBeDefined();
+
+			// Verify custom attributes are returned with custom: prefix
+			const deptAttr = response.User?.Attributes?.find(
+				(a) => a.Name === "custom:department",
+			);
+			expect(deptAttr?.Value).toBe("Engineering");
+
+			const empIdAttr = response.User?.Attributes?.find(
+				(a) => a.Name === "custom:employeeId",
+			);
+			expect(empIdAttr?.Value).toBe("12345");
+
+			// Verify custom attributes via AdminGetUser
+			const getResponse = await client.send(
+				new AdminGetUserCommand({
+					UserPoolId: USER_POOL_ID,
+					Username: username,
+				}),
+			);
+
+			const getDeptAttr = getResponse.UserAttributes?.find(
+				(a) => a.Name === "custom:department",
+			);
+			expect(getDeptAttr?.Value).toBe("Engineering");
+
+			const getEmpIdAttr = getResponse.UserAttributes?.find(
+				(a) => a.Name === "custom:employeeId",
+			);
+			expect(getEmpIdAttr?.Value).toBe("12345");
+		});
+
 		it("should create a user with a temporary password", async () => {
 			const username = `testuser-pwd-${Date.now()}`;
 			createdUsers.push(username);
