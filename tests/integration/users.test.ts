@@ -251,6 +251,76 @@ describe("Cognito User Management", () => {
 				),
 			).rejects.toThrow("Cannot modify immutable attribute");
 		});
+
+		it("should preserve unmodified attributes when updating specific attributes", async () => {
+			const username = `testuser-preserve-${Date.now()}`;
+			createdUsers.push(username);
+
+			const email = `${username}@example.com`;
+			const firstName = "OriginalFirst";
+			const lastName = "OriginalLast";
+
+			// Create user with multiple attributes
+			await client.send(
+				new AdminCreateUserCommand({
+					UserPoolId: USER_POOL_ID,
+					Username: username,
+					UserAttributes: [
+						{ Name: "email", Value: email },
+						{ Name: "given_name", Value: firstName },
+						{ Name: "family_name", Value: lastName },
+					],
+				}),
+			);
+
+			// Verify all attributes exist before update
+			let response = await client.send(
+				new AdminGetUserCommand({
+					UserPoolId: USER_POOL_ID,
+					Username: username,
+				}),
+			);
+
+			expect(
+				response.UserAttributes?.find((a) => a.Name === "email")?.Value,
+			).toBe(email);
+			expect(
+				response.UserAttributes?.find((a) => a.Name === "given_name")?.Value,
+			).toBe(firstName);
+			expect(
+				response.UserAttributes?.find((a) => a.Name === "family_name")?.Value,
+			).toBe(lastName);
+
+			// Update ONLY the given_name attribute
+			await client.send(
+				new AdminUpdateUserAttributesCommand({
+					UserPoolId: USER_POOL_ID,
+					Username: username,
+					UserAttributes: [{ Name: "given_name", Value: "UpdatedFirst" }],
+				}),
+			);
+
+			// Verify that given_name was updated but all other attributes are preserved
+			response = await client.send(
+				new AdminGetUserCommand({
+					UserPoolId: USER_POOL_ID,
+					Username: username,
+				}),
+			);
+
+			// given_name should be updated
+			expect(
+				response.UserAttributes?.find((a) => a.Name === "given_name")?.Value,
+			).toBe("UpdatedFirst");
+
+			// All other attributes should be preserved (not reset)
+			expect(
+				response.UserAttributes?.find((a) => a.Name === "email")?.Value,
+			).toBe(email);
+			expect(
+				response.UserAttributes?.find((a) => a.Name === "family_name")?.Value,
+			).toBe(lastName);
+		});
 	});
 
 	describe("AdminSetUserPassword", () => {

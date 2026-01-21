@@ -59,7 +59,7 @@ async function adminCreateUser(
 	// Build Keycloak user payload
 	const now = new Date().toISOString();
 	try {
-		const result = await keycloakClient.users.create({
+		const body = {
 			username: Username,
 			email,
 			firstName,
@@ -83,7 +83,8 @@ async function adminCreateUser(
 						},
 					]
 				: undefined,
-		});
+		};
+		const result = await keycloakClient.users.create(body);
 
 		// Fetch the created user to return full details
 		const createdUser = await keycloakClient.users.findOne({ id: result.id });
@@ -175,6 +176,7 @@ async function adminUpdateUserAttributes(
 	await keycloakClient.users.update(
 		{ id: user.id! },
 		{
+			...user,
 			...(email !== undefined && { email }),
 			...(firstName !== undefined && { firstName }),
 			...(lastName !== undefined && { lastName }),
