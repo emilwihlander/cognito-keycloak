@@ -14,7 +14,7 @@
 		"check:fix": "biome check --write ."
 	},
 	"dependencies": {
-		"@keycloak/keycloak-admin-client": "^26.5.1",
+		"@keycloak/keycloak-admin-client": "^26.5.2",
 		"hono": "^4.6.0"
 	},
 	"devDependencies": {
